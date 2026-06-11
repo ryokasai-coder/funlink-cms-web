@@ -235,6 +235,46 @@ let MASTER_CASES = [];
 let UNMATCHED_CASES = [];
 let TENPO_SEARCH = [];
 
+// LINE messages Supabase cache
+var _lmSummary = null; // fl -> {unread, latestDate, hasClam}
+var _lmThreadCache = {}; // fl -> msgs[]
+
+async function _loadLineSummaries() {
+  if (_lmSummary) return _lmSummary;
+  const { data } = await _sb.from('line_messages')
+    .select('case_fl,status,created_at,sender')
+    .order('created_at', { ascending: false })
+    .limit(20000);
+  _lmSummary = {};
+  if (data) {
+    data.forEach(function(m) {
+      const fl = m.case_fl;
+      if (!_lmSummary[fl]) _lmSummary[fl] = { unread: 0, latestDate: '', hasClam: false };
+      const s = _lmSummary[fl];
+      if (!s.latestDate || m.created_at > s.latestDate) s.latestDate = m.created_at;
+      if (m.status === '未対応' && m.sender === '顧客') s.unread++;
+      if (m.status === 'クレーム') s.hasClam = true;
+    });
+  }
+  return _lmSummary;
+}
+
+async function _loadLineThread(fl) {
+  if (_lmThreadCache[fl]) return _lmThreadCache[fl];
+  const { data } = await _sb.from('line_messages')
+    .select('*')
+    .eq('case_fl', fl)
+    .order('created_at', { ascending: true })
+    .limit(50);
+  _lmThreadCache[fl] = data || [];
+  return _lmThreadCache[fl];
+}
+
+function _invalidateLmCache(fl) {
+  _lmSummary = null;
+  if (fl) delete _lmThreadCache[fl];
+}
+
 // ===================== STORAGE =====================
 // ストレージはSupabaseを使用
 function getStore() {
@@ -667,14 +707,12 @@ modules.line = function() {
   else renderLineAutoLogs();
 };
 
-function renderLineMessages() {
-  var s = getStore();
+async function renderLineMessages() {
+  document.getElementById('line-body').innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div>';
+  const summary = await _loadLineSummaries();
   var casesWithLatest = MASTER_CASES.map(function(c){
-    var msgs = (s.lineMessages||[]).filter(function(m){ return m.caseFL===c.fl; });
-    var latestDate = msgs.length ? msgs.reduce(function(a,b){ return (a.createdAt||'')>(b.createdAt||'')?a:b; }).createdAt||'' : '';
-    var unread = msgs.filter(function(m){ return m.status==='未対応'; }).length;
-    var hasClam = msgs.some(function(m){ return m.status==='クレーム'; });
-    return {c:c, msgs:msgs, latestDate:latestDate, unread:unread, hasClam:hasClam};
+    var info = summary[c.fl] || { unread: 0, latestDate: '', hasClam: false };
+    return { c: c, latestDate: info.latestDate, unread: info.unread, hasClam: info.hasClam, hasMsgs: !!info.latestDate };
   });
   casesWithLatest.sort(function(a,b){
     if (a.latestDate && !b.latestDate) return -1;
@@ -686,7 +724,7 @@ function renderLineMessages() {
     var badge = item.hasClam
       ? '<span class="badge badge-red">クレーム</span>'
       : item.unread ? '<span class="badge badge-red">未対応 '+item.unread+'</span>'
-      : item.msgs.length ? '<span class="badge badge-green">対応済</span>' : '';
+      : item.hasMsgs ? '<span class="badge badge-green">対応済</span>' : '';
     return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(\''+escHtml(c.fl)+'\')">' +
       '<div class="fl">'+escHtml(c.fl)+(item.latestDate?' <span style="font-size:10px;color:#9ca3af">'+item.latestDate.slice(0,10)+'</span>':'')+
       '</div><div class="name">'+escHtml(c.name)+'</div>' +
@@ -711,36 +749,40 @@ function filterLineCaseList(q) {
   });
 }
 
-function showLineThread(fl) {
+async function showLineThread(fl) {
   state.line.selectedFL = fl;
   var c = MASTER_CASES.find(function(x){ return x.fl===fl; });
   if (!c) return;
-  var s = getStore();
-  var msgs = (s.lineMessages||[]).filter(function(m){ return m.caseFL===fl; });
-  msgs.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+  var threadEl = document.getElementById('line-thread');
+  if (threadEl) threadEl.innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div>';
+  var msgs = await _loadLineThread(fl);
   var meoUrl = c.stores && c.stores[0] ? c.stores[0].meo : '';
-  var catColors = {'管理画面':'#dbeafe','写真':'#d1fae5','クチコミ':'#ede9fe','解約':'#fee2e2','請求':'#fef3c7','LINE':'#fce7f3','その他':'#f3f4f6'};
+  var catColors = {'管理画面':'#dbeafe','写真':'#d1fae5','クチコミ':'#ede9fe','解約':'#fee2e2','請求':'#fef3c7','LINE':'#fce7f3','その他':'#f3f4f6','FunLink返信':'#f0fdf4'};
   var stCls = {'未対応':'badge-red','対応中':'badge-yellow','対応完了':'badge-green','クレーム':'badge-red'};
   var bubbles = msgs.map(function(m){
     var isCust = m.sender==='顧客';
     var bg = catColors[m.category]||'#f3f4f6';
+    var nameLabel = isCust && m.sender_name ? escHtml(m.sender_name) : (isCust ? '顧客' : 'FunLink');
+    var dateStr = (m.created_at||m.date||'').slice(0,16).replace('T',' ');
     return '<div style="display:flex;justify-content:'+(isCust?'flex-start':'flex-end')+';margin-bottom:16px">' +
       '<div style="max-width:72%">' +
-      '<div style="font-size:11px;color:#9ca3af;margin-bottom:3px;text-align:'+(isCust?'left':'right')+'">'+m.date+' \xb7 '+m.sender+'</div>' +
+      '<div style="font-size:11px;color:#9ca3af;margin-bottom:3px;text-align:'+(isCust?'left':'right')+'">'+dateStr+' \xb7 <b>'+nameLabel+'</b></div>' +
       '<div style="background:'+(isCust?'#fff':'#3b82f6')+';color:'+(isCust?'#1f2937':'#fff')+';border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,.1)">'+escHtml(m.message)+'</div>' +
       '<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;justify-content:'+(isCust?'flex-start':'flex-end')+'">' +
-      '<span class="badge" style="background:'+bg+';color:#374151">'+m.category+'</span>' +
-      '<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+m.status+'</span>' +
-      (m.replyDraft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.replyDraft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})">&#128203; 返信案</span>':'')+'</div>' +
-      (m.replyDraft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.replyDraft)+'</div>':'') +
+      '<span class="badge" style="background:'+bg+';color:#374151">'+escHtml(m.category||'')+'</span>' +
+      '<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+escHtml(m.status||'')+'</span>' +
+      (m.reply_draft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.reply_draft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})">&#128203; 返信案</span>':'')+'</div>' +
+      (m.reply_draft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.reply_draft)+'</div>':'') +
       '<div style="margin-top:4px;text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-      (m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+m.id+'\')">完了</button>':'') +
-      '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+m.id+'\')">削除</button></div>' +
+      (m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">完了</button>':'') +
+      '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button></div>' +
       '</div></div>';
   }).join('');
-  document.getElementById('line-thread').innerHTML =
+  threadEl = document.getElementById('line-thread');
+  if (!threadEl) return;
+  threadEl.innerHTML =
     '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px">' +
-    '<div><div style="font-size:18px;font-weight:700;color:#3b82f6">'+fl+'</div><div style="font-size:14px;font-weight:600">'+c.name+'</div></div>' +
+    '<div><div style="font-size:18px;font-weight:700;color:#3b82f6">'+escHtml(fl)+'</div><div style="font-size:14px;font-weight:600">'+escHtml(c.name)+'</div></div>' +
     (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary" style="margin-left:auto">&#128279; meo-dash</a>':'')+
     '</div>' +
     (bubbles||'<div style="text-align:center;color:#9ca3af;padding:40px 0">メッセージがありません</div>') +
@@ -754,26 +796,49 @@ function showLineThread(fl) {
     '<div class="form-group"><label>メッセージ内容</label><textarea id="lm_msg" placeholder="問い合わせ内容..."></textarea></div>' +
     '<div class="form-group"><label>返信案（任意）</label><textarea id="lm_reply" style="min-height:60px" placeholder="送付する返信文..."></textarea></div>' +
     '<div class="form-group"><label>ステータス</label><select id="lm_status"><option>未対応</option><option>対応中</option><option>対応完了</option><option>クレーム</option></select></div>' +
-    '<div style="text-align:right"><button class="btn btn-primary" onclick="saveLineMsg(\''+fl+'\')">追加</button></div></div>';
+    '<div style="text-align:right"><button class="btn btn-primary" onclick="saveLineMsg(\''+escHtml(fl)+'\')">追加</button></div></div>';
+  // スレッド末尾にスクロール
+  threadEl.scrollTop = threadEl.scrollHeight;
+  // 最新の顧客メッセージに対して返信候補を表示
+  var lastCust = null;
+  for (var i = msgs.length-1; i >= 0; i--) {
+    if (msgs[i].sender === '顧客') { lastCust = msgs[i]; break; }
+  }
+  if (lastCust) showReplySuggestions(lastCust.message, fl);
 }
 
-function markLineDone(id){
-  var s=getStore();
-  var m=(s.lineMessages||[]).find(function(x){return x.id===id;});
-  if(m){m.status='対応完了';saveStore(s);showLineThread(state.line.selectedFL);toast('完了にしました');}
+async function markLineDone(id, fl){
+  await _sb.from('line_messages').update({ status: '対応完了' }).eq('id', id);
+  _invalidateLmCache(fl);
+  showLineThread(fl || state.line.selectedFL);
+  toast('完了にしました');
 }
-function saveLineMsg(fl){
+async function saveLineMsg(fl){
   var msg=(document.getElementById('lm_msg')||{}).value||'';
   if(!msg.trim()){toast('メッセージ内容は必須です');return;}
-  var s=getStore();
-  s.lineMessages.push({id:uid(),caseFL:fl,date:(document.getElementById('lm_date')||{}).value||today(),sender:(document.getElementById('lm_sender')||{}).value||'顧客',category:(document.getElementById('lm_cat')||{}).value||'その他',message:msg,replyDraft:(document.getElementById('lm_reply')||{}).value||'',status:(document.getElementById('lm_status')||{}).value||'未対応',createdAt:today()});
-  saveStore(s);showLineThread(fl);toast('追加しました');
+  var now = new Date().toISOString();
+  await _sb.from('line_messages').insert({
+    id: uid(),
+    case_fl: fl,
+    date: (document.getElementById('lm_date')||{}).value||today(),
+    sender: (document.getElementById('lm_sender')||{}).value||'顧客',
+    sender_name: '',
+    category: (document.getElementById('lm_cat')||{}).value||'その他',
+    message: msg,
+    reply_draft: (document.getElementById('lm_reply')||{}).value||'',
+    status: (document.getElementById('lm_status')||{}).value||'未対応',
+    created_at: now,
+  });
+  _invalidateLmCache(fl);
+  showLineThread(fl);
+  toast('追加しました');
 }
-function deleteLineMsg(id){
+async function deleteLineMsg(id, fl){
   if(!confirm('削除しますか？'))return;
-  var s=getStore();
-  s.lineMessages=s.lineMessages.filter(function(m){return m.id!==id;});
-  saveStore(s);showLineThread(state.line.selectedFL);toast('削除しました');
+  await _sb.from('line_messages').delete().eq('id', id);
+  _invalidateLmCache(fl);
+  showLineThread(fl || state.line.selectedFL);
+  toast('削除しました');
 }
 
 function renderLineWebhook() {
