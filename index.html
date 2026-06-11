@@ -687,9 +687,9 @@ function renderLineMessages() {
       ? '<span class="badge badge-red">クレーム</span>'
       : item.unread ? '<span class="badge badge-red">未対応 '+item.unread+'</span>'
       : item.msgs.length ? '<span class="badge badge-green">対応済</span>' : '';
-    return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(''+c.fl+'')">' +
-      '<div class="fl">'+c.fl+(item.latestDate?' <span style="font-size:10px;color:#9ca3af">'+item.latestDate.slice(0,10)+'</span>':'')+
-      '</div><div class="name">'+c.name+'</div>' +
+    return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(\''+escHtml(c.fl)+'\')">' +
+      '<div class="fl">'+escHtml(c.fl)+(item.latestDate?' <span style="font-size:10px;color:#9ca3af">'+item.latestDate.slice(0,10)+'</span>':'')+
+      '</div><div class="name">'+escHtml(c.name)+'</div>' +
       '<div style="margin-top:3px">'+statusBadge(c.status)+' '+badge+'</div></div>';
   }).join('');
   document.getElementById('line-body').innerHTML =
