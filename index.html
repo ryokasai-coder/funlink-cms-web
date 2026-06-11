@@ -669,12 +669,28 @@ modules.line = function() {
 
 function renderLineMessages() {
   var s = getStore();
-  var leftItems = MASTER_CASES.map(function(c){
+  var casesWithLatest = MASTER_CASES.map(function(c){
     var msgs = (s.lineMessages||[]).filter(function(m){ return m.caseFL===c.fl; });
+    var latestDate = msgs.length ? msgs.reduce(function(a,b){ return (a.createdAt||'')>(b.createdAt||'')?a:b; }).createdAt||'' : '';
     var unread = msgs.filter(function(m){ return m.status==='未対応'; }).length;
-    return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(\''+c.fl+'\')">' +
-      '<div class="fl">'+c.fl+'</div><div class="name">'+c.name+'</div>' +
-      '<div style="margin-top:3px">'+statusBadge(c.status)+(unread?' <span class="badge badge-red">'+unread+'</span>':'')+'</div></div>';
+    var hasClam = msgs.some(function(m){ return m.status==='クレーム'; });
+    return {c:c, msgs:msgs, latestDate:latestDate, unread:unread, hasClam:hasClam};
+  });
+  casesWithLatest.sort(function(a,b){
+    if (a.latestDate && !b.latestDate) return -1;
+    if (!a.latestDate && b.latestDate) return 1;
+    return b.latestDate.localeCompare(a.latestDate);
+  });
+  var leftItems = casesWithLatest.map(function(item){
+    var c = item.c;
+    var badge = item.hasClam
+      ? '<span class="badge badge-red">クレーム</span>'
+      : item.unread ? '<span class="badge badge-red">未対応 '+item.unread+'</span>'
+      : item.msgs.length ? '<span class="badge badge-green">対応済</span>' : '';
+    return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(''+c.fl+'')">' +
+      '<div class="fl">'+c.fl+(item.latestDate?' <span style="font-size:10px;color:#9ca3af">'+item.latestDate.slice(0,10)+'</span>':'')+
+      '</div><div class="name">'+c.name+'</div>' +
+      '<div style="margin-top:3px">'+statusBadge(c.status)+' '+badge+'</div></div>';
   }).join('');
   document.getElementById('line-body').innerHTML =
     '<div style="display:flex;height:calc(100vh - 160px);overflow:hidden">' +
@@ -704,7 +720,7 @@ function showLineThread(fl) {
   msgs.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
   var meoUrl = c.stores && c.stores[0] ? c.stores[0].meo : '';
   var catColors = {'管理画面':'#dbeafe','写真':'#d1fae5','クチコミ':'#ede9fe','解約':'#fee2e2','請求':'#fef3c7','LINE':'#fce7f3','その他':'#f3f4f6'};
-  var stCls = {'未対応':'badge-red','対応中':'badge-yellow','完了':'badge-green'};
+  var stCls = {'未対応':'badge-red','対応中':'badge-yellow','対応完了':'badge-green','クレーム':'badge-red'};
   var bubbles = msgs.map(function(m){
     var isCust = m.sender==='顧客';
     var bg = catColors[m.category]||'#f3f4f6';
@@ -718,7 +734,7 @@ function showLineThread(fl) {
       (m.replyDraft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.replyDraft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})">&#128203; 返信案</span>':'')+'</div>' +
       (m.replyDraft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.replyDraft)+'</div>':'') +
       '<div style="margin-top:4px;text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-      (m.status!=='完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+m.id+'\')">完了</button>':'') +
+      (m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+m.id+'\')">完了</button>':'') +
       '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+m.id+'\')">削除</button></div>' +
       '</div></div>';
   }).join('');
@@ -736,14 +752,14 @@ function showLineThread(fl) {
     '<div><label>カテゴリ</label><select id="lm_cat"><option>管理画面</option><option>写真</option><option>クチコミ</option><option>解約</option><option>請求</option><option>LINE</option><option>その他</option></select></div></div>' +
     '<div class="form-group"><label>メッセージ内容</label><textarea id="lm_msg" placeholder="問い合わせ内容..."></textarea></div>' +
     '<div class="form-group"><label>返信案（任意）</label><textarea id="lm_reply" style="min-height:60px" placeholder="送付する返信文..."></textarea></div>' +
-    '<div class="form-group"><label>ステータス</label><select id="lm_status"><option>未対応</option><option>対応中</option><option>完了</option></select></div>' +
+    '<div class="form-group"><label>ステータス</label><select id="lm_status"><option>未対応</option><option>対応中</option><option>対応完了</option><option>クレーム</option></select></div>' +
     '<div style="text-align:right"><button class="btn btn-primary" onclick="saveLineMsg(\''+fl+'\')">追加</button></div></div>';
 }
 
 function markLineDone(id){
   var s=getStore();
   var m=(s.lineMessages||[]).find(function(x){return x.id===id;});
-  if(m){m.status='完了';saveStore(s);showLineThread(state.line.selectedFL);toast('完了にしました');}
+  if(m){m.status='対応完了';saveStore(s);showLineThread(state.line.selectedFL);toast('完了にしました');}
 }
 function saveLineMsg(fl){
   var msg=(document.getElementById('lm_msg')||{}).value||'';
