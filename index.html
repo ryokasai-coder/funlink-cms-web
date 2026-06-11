@@ -744,6 +744,7 @@ function showLineThread(fl) {
     (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary" style="margin-left:auto">&#128279; meo-dash</a>':'')+
     '</div>' +
     (bubbles||'<div style="text-align:center;color:#9ca3af;padding:40px 0">メッセージがありません</div>') +
+    '<div id="reply-suggestions"></div>' +
     '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px;margin-top:16px">' +
     '<div style="font-size:13px;font-weight:700;margin-bottom:10px">メッセージを追加</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">' +
@@ -1189,6 +1190,91 @@ function openLearningForm(){
 function saveLearning(){var s=getStore();s.learningItems.push({id:uid(),title:document.getElementById('lf2-title').value,category:document.getElementById('lf2-cat').value,tags:document.getElementById('lf2-tags').value,content:document.getElementById('lf2-content').value,createdAt:today(),read:false});saveStore(s);closeModal();toast('保存しました');modules.learning();}
 function markLearningRead(id){var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(item)item.read=true;saveStore(s);toast('既読にしました');modules.learning();}
 function deleteLearning(id){if(!confirm('削除しますか？'))return;var s=getStore();s.learningItems=s.learningItems.filter(function(x){return x.id!==id;});saveStore(s);state.learning.viewId=null;toast('削除しました','info');modules.learning();}
+
+// ===================== REPLY PATTERNS =====================
+var REPLY_PATTERNS = [
+  { category: '初回・友達追加', keywords: ['はじめまして','よろしくお願い','追加しました','登録しました','会社名','担当者名'],
+    replies: ['お世話になっております。\nMEO対策サービス FunLinkです。\n\nご登録いただきありがとうございます。\n運用に関してのご相談・ご質問等、確認でき次第、順次対応いたします。\n\n※ 対応時間は【平日10:00～19:00】となっております。',
+              'お世話になっております。\nご連絡ありがとうございます。内容を確認の上、担当者よりご連絡いたします。\n引き続きよろしくお願い致します。'] },
+  { category: 'クチコミ対応', keywords: ['クチコミ','口コミ','レビュー','評価','星','低評価'],
+    replies: ['お世話になっております。\nクチコミに関するお問い合わせありがとうございます。\n\n内容を確認の上、対応方法をご案内いたします。\n該当のクチコミの内容をお知らせいただけますでしょうか。',
+              'お世話になっております。\nご連絡ありがとうございます。\nクチコミへの返信文の作成・対応についてサポートいたします。'] },
+  { category: 'クチコミ削除', keywords: ['削除','消したい','消せますか'],
+    replies: ['お世話になっております。\nクチコミの削除についてですが、Googleのポリシー上、オーナー側からの直接削除はできない仕様となっております。\nGoogleへの申請（不適切なコンテンツとして報告）を行う方法をご案内いたします。少々お待ちください。'] },
+  { category: '写真・画像更新', keywords: ['写真','画像','写真を送','アップロード'],
+    replies: ['お世話になっております。\n写真・画像の共有ありがとうございます。\n内容を確認の上、GBPに反映いたします。反映完了後にご連絡いたします。',
+              'お世話になっております。\nご連絡ありがとうございます。\n写真の更新を承りました。順次対応いたしますので少々お待ちください。'] },
+  { category: 'MEO・順位', keywords: ['順位','上がらない','下がった','マップ','表示されない','MEO','GBP'],
+    replies: ['お世話になっております。\nご連絡ありがとうございます。\n現在の検索順位・表示状況を確認いたします。\n対象キーワードや地域をお知らせいただけますでしょうか。',
+              'お世話になっております。\nご連絡ありがとうございます。\nレポートを確認の上、状況をご報告いたします。'] },
+  { category: 'ログイン・管理画面', keywords: ['ログイン','パスワード','管理画面','入れない','エラー'],
+    replies: ['お世話になっております。\nログインについてのお問い合わせありがとうございます。\nご不便をおかけして申し訳ございません。\n・ご利用のメールアドレス\n・エラーメッセージの内容\nをお知らせいただけますでしょうか。'] },
+  { category: '請求・料金', keywords: ['請求','料金','支払い','領収書','請求書','振込','入金'],
+    replies: ['お世話になっております。\nご連絡ありがとうございます。\n料金・請求に関するお問い合わせを承りました。詳細を確認の上、担当者よりご連絡いたします。'] },
+  { category: '振込先確認', keywords: ['振込先','口座番号','銀行','口座教えて'],
+    replies: ['お世話になっております。\nお振込先は下記となります。\n\n┄┄┄┄┄┄┄┄┄┄\n【お振込先】\n銀行名　 GMOあおぞらネット銀行\n支店　　 法人第二営業部\n種別　　 普通預金\n口座番号 1257348\n口座名義 カ）フアンリツクスホウジンエイギヨウジギヨウブ\n┄┄┄┄┄┄┄┄┄┄'] },
+  { category: '解約・退会', keywords: ['解約','退会','やめたい','キャンセル','終了したい'],
+    replies: ['お世話になっております。\nご連絡ありがとうございます。\n解約に関するご相談を承りました。担当者より改めてご連絡させていただきます。\nご都合の良いお日時をいくつかお知らせいただけますでしょうか。',
+              'お世話になっております。\nまず現状のお困りの点をお聞かせいただけますでしょうか。\n改善できる点があればご提案させていただきます。'] },
+  { category: 'MTG・打ち合わせ', keywords: ['打ち合わせ','ミーティング','zoom','ZOOM','日程','候補日'],
+    replies: ['お世話になっております。\n承知いたしました。候補日をお待ちしております。\nご都合の良い日時をいくつかお知らせいただけますでしょうか。',
+              'お世話になっております。\n打ち合わせのご希望ありがとうございます。\n担当者に確認の上、改めてご連絡いたします。'] },
+  { category: '急ぎ', keywords: ['急ぎ','至急','困っています','困ってます'],
+    replies: ['お世話になっております。\nご連絡ありがとうございます。\n内容を確認の上、担当者よりできる限り早くご連絡いたします。\n※ 対応時間は【平日10:00～19:00】となっております。'] },
+];
+var DEFAULT_REPLIES = [
+  'お世話になっております。\nご連絡ありがとうございます。\n内容を確認の上、担当者よりご連絡いたします。\n少々お待ちくださいませ。\n\n※ 対応時間は【平日10:00～19:00】となっております。',
+  'お世話になっております。\nご連絡ありがとうございます。\nただいま確認中です。確認でき次第、折り返しご連絡いたします。',
+];
+
+function matchReplyPattern(text) {
+  var t = (text||'').toLowerCase();
+  for (var i = 0; i < REPLY_PATTERNS.length; i++) {
+    var p = REPLY_PATTERNS[i];
+    for (var j = 0; j < p.keywords.length; j++) {
+      if (t.indexOf(p.keywords[j].toLowerCase()) >= 0) {
+        return { category: p.category, replies: p.replies };
+      }
+    }
+  }
+  return { category: 'その他', replies: DEFAULT_REPLIES };
+}
+
+function showReplySuggestions(msgText, fl) {
+  var container = document.getElementById('reply-suggestions');
+  if (!container) return;
+  var result = matchReplyPattern(msgText);
+  if (!state.line.suggestions) state.line.suggestions = {};
+  state.line.suggestions[fl] = result.replies;
+  var html = '<div style="background:#eff6ff;border-radius:10px;border:1px solid #bfdbfe;padding:16px;margin-top:16px">' +
+    '<div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:12px">&#128161; 返信案（' + escHtml(result.category) + '）<span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:8px">顧客の最新メッセージに基づく候補</span></div>';
+  result.replies.forEach(function(r, i) {
+    html += '<div style="background:#fff;border-radius:8px;border:1px solid #dbeafe;padding:12px;margin-bottom:8px">' +
+      '<div style="font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.8">' + escHtml(r) + '</div>' +
+      '<div style="text-align:right;margin-top:8px">' +
+      '<button class="btn btn-sm" style="background:#3b82f6;color:#fff;margin-right:6px" onclick="copyReply(' + i + ',\'' + escHtml(fl) + '\')">&#128203; コピー</button>' +
+      '<button class="btn btn-sm btn-success" onclick="fillReply(' + i + ',\'' + escHtml(fl) + '\')">&#9997; 返信欄に入力</button></div></div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function copyReply(idx, fl) {
+  var replies = state.line && state.line.suggestions && state.line.suggestions[fl];
+  if (!replies || !replies[idx]) return;
+  navigator.clipboard && navigator.clipboard.writeText(replies[idx]).then(function(){ toast('コピーしました'); });
+}
+
+function fillReply(idx, fl) {
+  var replies = state.line && state.line.suggestions && state.line.suggestions[fl];
+  if (!replies || !replies[idx]) return;
+  var el = document.getElementById('lm_reply');
+  if (el) { el.value = replies[idx]; el.scrollIntoView({behavior:'smooth'}); }
+  var senderEl = document.getElementById('lm_sender');
+  if (senderEl) senderEl.value = 'FunLink';
+  toast('返信欄に入力しました');
+}
+
 
 
 initApp();
