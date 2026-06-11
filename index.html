@@ -168,18 +168,23 @@ function saveStore(data) {
 
 async function initApp() {
   document.getElementById('content').innerHTML = '<div style="text-align:center;padding:80px;color:#6b7280;font-size:16px">⏳ データを読み込み中...</div>';
-  // 案件データとストアデータを並行ロード
-  const [casesRes, storeRes] = await Promise.all([
-    _sb.from('cms_store').select('data').eq('id','cases').single(),
-    _sb.from('cms_store').select('data').eq('id','main').single(),
-  ]);
-  if (casesRes.data && casesRes.data.data) {
-    MASTER_CASES = casesRes.data.data.master || [];
-    UNMATCHED_CASES = casesRes.data.data.unmatched || [];
-    TENPO_SEARCH = casesRes.data.data.tenpo || [];
+  try {
+    const [casesRes, storeRes] = await Promise.all([
+      _sb.from('cms_store').select('data').eq('id','cases').single(),
+      _sb.from('cms_store').select('data').eq('id','main').single(),
+    ]);
+    if (casesRes.error) throw new Error('cases: ' + casesRes.error.message);
+    if (casesRes.data && casesRes.data.data) {
+      MASTER_CASES = casesRes.data.data.master || [];
+      UNMATCHED_CASES = casesRes.data.data.unmatched || [];
+      TENPO_SEARCH = casesRes.data.data.tenpo || [];
+    }
+    _storeCache = (storeRes.data && storeRes.data.data) ? storeRes.data.data : {};
+    loadModule('dashboard');
+  } catch(e) {
+    document.getElementById('content').innerHTML = '<div style="text-align:center;padding:80px;color:#ef4444;font-size:14px">❌ 読み込みエラー: ' + e.message + '</div>';
+    console.error('initApp error:', e);
   }
-  _storeCache = (storeRes.data && storeRes.data.data) ? storeRes.data.data : {};
-  initApp();
 }
 </script>
 </head>
