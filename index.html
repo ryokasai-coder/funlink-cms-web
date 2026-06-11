@@ -697,14 +697,15 @@ function unlinkStore(fl) {
 // ===================== LINE MODULE =====================
 modules.line = function() {
   var tab = state.line.tab || 0;
-  var tabNames = ['メッセージ管理','Webhook設定','自動返信ログ'];
+  var tabNames = ['メッセージ管理','Webhook設定','自動返信ログ','LINE ID紐付け'];
   var tabsHtml = tabNames.map(function(l,i){
     return '<div class="tab '+(i===tab?'active':'')+'" onclick="state.line.tab='+i+';modules.line()">'+l+'</div>';
   }).join('');
   document.getElementById('content').innerHTML = '<div class="tabs">'+tabsHtml+'</div><div id="line-body"></div>';
   if (tab===0) renderLineMessages();
   else if (tab===1) renderLineWebhook();
-  else renderLineAutoLogs();
+  else if (tab===2) renderLineAutoLogs();
+  else renderLineIdMapping();
 };
 
 async function renderLineMessages() {
@@ -903,6 +904,64 @@ function renderLineAutoLogs(){
 function clearLineAutoLogs(){
   if(!confirm('自動返信ログをクリアしますか？'))return;
   var s=getStore();s.lineAutoLogs=[];saveStore(s);renderLineAutoLogs();toast('クリアしました');
+}
+
+async function renderLineIdMapping() {
+  document.getElementById('line-body').innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div>';
+  var { data: mapped } = await _sb.from('line_user_fl_map').select('*').order('fl_code');
+  var { data: unmapped } = await _sb.from('line_messages').select('case_fl,sender_name').like('case_fl','U%').limit(200);
+  var unmappedUsers = {};
+  (unmapped||[]).forEach(function(r){ if(!unmappedUsers[r.case_fl]) unmappedUsers[r.case_fl] = r.sender_name||''; });
+  var mappedIds = (mapped||[]).map(function(r){ return r.line_user_id; });
+  var newUsers = Object.keys(unmappedUsers).filter(function(id){ return mappedIds.indexOf(id)<0; });
+
+  var mappedRows = (mapped||[]).map(function(r){
+    var c = MASTER_CASES.find(function(x){ return x.fl===r.fl_code; });
+    return '<tr><td style="font-size:11px;word-break:break-all">'+escHtml(r.line_user_id)+'</td>' +
+      '<td>'+escHtml(r.display_name||'-')+'</td>' +
+      '<td><span class="badge badge-blue">'+escHtml(r.fl_code)+'</span></td>' +
+      '<td>'+(c?escHtml(c.name):'-')+'</td>' +
+      '<td><button class="btn btn-sm btn-danger" onclick="deleteLineIdMap(\''+escHtml(r.line_user_id)+'\')">削除</button></td></tr>';
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:24px">紐付けデータがありません</td></tr>';
+
+  var unmappedRows = newUsers.map(function(uid){
+    var caseOpts = MASTER_CASES.map(function(c){ return '<option value="'+escHtml(c.fl)+'">'+escHtml(c.fl)+' '+escHtml(c.name)+'</option>'; }).join('');
+    return '<tr><td style="font-size:11px;word-break:break-all">'+escHtml(uid)+'</td>' +
+      '<td>'+escHtml(unmappedUsers[uid]||'-')+'</td>' +
+      '<td><select id="sel_'+escHtml(uid)+'" style="width:220px"><option value="">-- FLコードを選択 --</option>'+caseOpts+'</select></td>' +
+      '<td><button class="btn btn-sm btn-primary" onclick="saveLineIdMap(\''+escHtml(uid)+'\')">登録</button></td></tr>';
+  }).join('') || '<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:24px">未紐付けのユーザーはいません</td></tr>';
+
+  document.getElementById('line-body').innerHTML =
+    '<div class="card" style="margin-bottom:16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+    '<div class="card-title" style="margin:0">未紐付けLINEユーザー</div>' +
+    '<button class="btn btn-sm btn-secondary" onclick="renderLineIdMapping()">更新</button></div>' +
+    '<div class="table-wrap"><table><thead><tr><th>LINE UserID</th><th>表示名</th><th>FLコード</th><th></th></tr></thead>' +
+    '<tbody>'+unmappedRows+'</tbody></table></div></div>' +
+    '<div class="card"><div class="card-title">紐付け済みユーザー</div>' +
+    '<div class="table-wrap"><table><thead><tr><th>LINE UserID</th><th>表示名</th><th>FLコード</th><th>案件名</th><th></th></tr></thead>' +
+    '<tbody>'+mappedRows+'</tbody></table></div></div>';
+}
+
+async function saveLineIdMap(lineUserId) {
+  var sel = document.getElementById('sel_'+lineUserId);
+  if (!sel || !sel.value) { toast('FLコードを選択してください', true); return; }
+  var flCode = sel.value;
+  var { error } = await _sb.from('line_user_fl_map').upsert({ line_user_id: lineUserId, fl_code: flCode, display_name: '' });
+  if (error) { toast('登録失敗: '+error.message, true); return; }
+  // line_messagesの既存レコードもFLコードに更新
+  await _sb.from('line_messages').update({ case_fl: flCode }).eq('case_fl', lineUserId);
+  toast('登録しました');
+  renderLineIdMapping();
+}
+
+async function deleteLineIdMap(lineUserId) {
+  if (!confirm('この紐付けを削除しますか？')) return;
+  var { error } = await _sb.from('line_user_fl_map').delete().eq('line_user_id', lineUserId);
+  if (error) { toast('削除失敗: '+error.message, true); return; }
+  toast('削除しました');
+  renderLineIdMapping();
 }
 
 modules.review = function() { renderReviewModule(); };
