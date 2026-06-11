@@ -569,7 +569,7 @@ function showContractDetail(fl) {
   var stores = c.stores||[], bills = c.bills||[];
   var ltv = bills.reduce(function(a,b){ return a+(b.tax||0); }, 0);
   var tabIdx = state.contract.contractTab||0;
-  var tabLabels = ['企業情報','店舗情報','料金履歴','利用機能'];
+  var tabLabels = ['企業情報','店舗情報','料金履歴','利用機能','契約書'];
   var tabsHtml = tabLabels.map(function(l,i){ return '<div class="tab ' + (i===tabIdx?'active':'') + '" onclick="state.contract.contractTab=' + i + ';showContractDetail(\'' + escHtml(fl) + '\')">' + l + '</div>'; }).join('');
 
   var content = '';
@@ -595,13 +595,40 @@ function showContractDetail(fl) {
       (bills.length ? '<div class="table-wrap"><table><thead><tr><th>請求書番号</th><th>商品</th><th>期間</th><th>金額(税込)</th><th>状態</th><th>入金日</th><th>期日</th></tr></thead><tbody>' +
       bills.map(function(b){ return '<tr><td style="font-size:11px">' + escHtml(b.inv) + '</td><td>' + escHtml(b.prod) + '</td><td>' + escHtml(b.start) + '～' + escHtml(b.end) + '</td><td>' + fmtMoney(b.tax) + '</td><td>' + paidBadge(b.paid) + '</td><td>' + escHtml(b.paid_date||'-') + '</td><td>' + escHtml(b.due||'-') + '</td></tr>'; }).join('') +
       '</tbody></table></div>' : '<div class="empty-state"><p>請求履歴なし</p></div>');
-  } else {
+  } else if (tabIdx===3) {
     var feats = [['投稿','fp'],['クチコミ管理','fr'],['LINE連携','fl2'],['AI機能','fai'],['写真管理','fph'],['分析','fan']];
     content = '<div class="feature-grid">' + feats.map(function(f){ var active=stores.some(function(s){return s[f[1]]==='有';}); return '<div class="feature-item"><span class="check">' + (active?'✅':'⬜') + '</span>' + f[0] + '</div>'; }).join('') + '</div>';
+  } else {
+    content = '<div id="contract-pdf-area"><div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div></div>';
+    setTimeout(function(){ loadContractPdfs(fl); }, 0);
   }
   document.getElementById('contract-detail').innerHTML =
     '<div style="padding:12px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between"><div><span style="font-size:12px;color:#6b7280">' + escHtml(c.fl) + '</span> <strong style="font-size:15px">' + escHtml(c.name) + '</strong></div>' + statusBadge(c.status) + '</div>' +
     '<div class="panel-right-inner"><div class="tabs">' + tabsHtml + '</div>' + content + '</div>';
+}
+
+async function loadContractPdfs(fl) {
+  var area = document.getElementById('contract-pdf-area');
+  if (!area) return;
+  var { data: files, error } = await _sb.from('contracts').select('*').eq('fl_code', fl).order('uploaded_at');
+  if (error) { area.innerHTML = '<div style="color:#ef4444;padding:20px">読み込みエラー: '+escHtml(error.message)+'</div>'; return; }
+  if (!files || !files.length) {
+    area.innerHTML =
+      '<div style="padding:32px;text-align:center;color:#9ca3af">' +
+      '<div style="font-size:32px;margin-bottom:8px">📄</div>' +
+      '<p>契約書が登録されていません</p></div>';
+    return;
+  }
+  var html = files.map(function(f) {
+    var publicUrl = 'https://xfumvuxahjferrapdywj.supabase.co/storage/v1/object/public/contracts/' + encodeURIComponent(f.storage_path).replace(/%2F/g, '/');
+    return '<div class="card" style="margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+      '<div style="font-size:13px;font-weight:600;color:#374151">📄 '+escHtml(f.file_name)+'</div>' +
+      '<a href="'+escHtml(publicUrl)+'" target="_blank" class="btn btn-sm btn-secondary">ダウンロード</a></div>' +
+      '<iframe src="'+escHtml(publicUrl)+'" style="width:100%;height:600px;border:1px solid #e5e7eb;border-radius:6px" loading="lazy"></iframe>' +
+      '</div>';
+  }).join('');
+  area.innerHTML = html;
 }
 
 // LINE
