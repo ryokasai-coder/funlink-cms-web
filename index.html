@@ -648,7 +648,7 @@ function loadModule(mod) {
 var state = {
   master: { page: 1, statusFilter: '全て', search: '' },
   contract: { selectedFL: null, contractTab: 0, fy: null },
-  line: { selectedFL: null, tab: 0 },
+  line: { selectedFL: null, tab: 0, listFilter: 'all', msgCatFilter: 'all', msgStatusFilter: 'all' },
   matching: { selectedFL: null, search: '' },
   review: { selectedFL: null, tab: 0 },
   meeting: { selectedFL: null },
@@ -691,12 +691,24 @@ modules.dashboard = function() {
   var unpaidRows = unpaidTop.map(function(x){
     return '<tr><td style="font-size:12px;font-weight:600;color:#4F46E5">'+escHtml(x.fl)+'</td><td style="font-size:12px">'+escHtml(x.company)+'</td><td style="text-align:right;font-size:12px;color:#ef4444;font-weight:700">'+fmtMoney(x.amount)+'</td><td style="font-size:11px;color:#9ca3af">'+escHtml(x.due_date||'-')+'</td></tr>';
   }).join('');
+  // LINE未対応件数（キャッシュがあれば即時、なければ非同期で更新）
+  var lineUnread = 0, lineClam = 0;
+  if (_lmSummary) {
+    Object.keys(_lmSummary).forEach(function(fl){
+      if (_lmSummary[fl].hasClam) lineClam++;
+      else if (_lmSummary[fl].unread > 0) lineUnread++;
+    });
+  }
   document.getElementById('content').innerHTML =
-    '<div class="kpi-grid">' +
+    '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">' +
     '<div class="kpi-card"><div class="kpi-label">契約中件数</div><div class="kpi-value">' + contracted.length + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">全' + MASTER_CASES.length + '社中</div></div>' +
     '<div class="kpi-card green"><div class="kpi-label">MRR'+(invoices.length?' (請求ロボ)':' (概算)')+'</div><div class="kpi-value" style="font-size:22px">' + fmtMoney(mrr) + '</div><div class="kpi-sub">'+ym+'</div></div>' +
     '<div class="kpi-card red"><div class="kpi-label">未収合計</div><div class="kpi-value" style="font-size:20px">'+(invoices.length?fmtMoney(unpaidAmt):'-')+'</div><div class="kpi-sub">'+(invoices.length?unpaidAll.length+'件':'請求ロボ未取込')+'</div></div>' +
     '<div class="kpi-card yellow"><div class="kpi-label">未完了タスク数</div><div class="kpi-value">' + openTasks + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">全担当者合計</div></div>' +
+    '<div class="kpi-card purple" style="cursor:pointer" onclick="state.line.listFilter=\'unread\';loadModule(\'line\')">' +
+    '<div class="kpi-label">LINE未対応</div>' +
+    '<div class="kpi-value" id="kpi-line-val">' + (_lmSummary ? lineUnread+lineClam : '…') + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
+    '<div class="kpi-sub" id="kpi-line-sub">' + (_lmSummary ? (lineClam?'クレーム'+lineClam+'件含む':'対応待ち') : '読み込み中...') + '</div></div>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
     '<div class="card"><div class="card-title">最近のタスク</div>' +
@@ -715,6 +727,21 @@ modules.dashboard = function() {
     '<div><div class="kpi-label">未入金合計</div><div style="font-size:18px;font-weight:700;color:#ef4444">' + fmtMoney(totalAmt-paidAmt) + '</div></div>' +
     '</div></div>' +
     (recentSupport.length?'<div class="card" style="margin-top:16px"><div class="card-title">最近のサポート履歴</div><div class="table-wrap"><table><thead><tr><th>案件</th><th>日付</th><th>分類</th></tr></thead><tbody>' + supportRows + '</tbody></table></div></div>':'');
+
+  // LINE未対応件数を非同期で更新（キャッシュ未取得時）
+  if (!_lmSummary) {
+    _loadLineSummaries().then(function(summary){
+      var ur = 0, cl = 0;
+      Object.keys(summary).forEach(function(fl){
+        if (summary[fl].hasClam) cl++;
+        else if (summary[fl].unread > 0) ur++;
+      });
+      var v = document.getElementById('kpi-line-val');
+      var sub = document.getElementById('kpi-line-sub');
+      if (v) v.innerHTML = (ur+cl) + '<span style="font-size:14px;color:#6b7280"> 件</span>';
+      if (sub) sub.textContent = cl ? 'クレーム'+cl+'件含む' : '対応待ち';
+    });
+  }
 };
 
 // MASTER
@@ -2236,7 +2263,18 @@ async function renderLineMessages() {
     if (!a.latestDate && b.latestDate) return 1;
     return b.latestDate.localeCompare(a.latestDate);
   });
-  var leftItems = casesWithLatest.map(function(item){
+
+  // 件数カウント
+  var totalUnread = casesWithLatest.filter(function(x){ return x.unread > 0 && !x.hasClam; }).length;
+  var totalClam = casesWithLatest.filter(function(x){ return x.hasClam; }).length;
+
+  // フィルタ適用
+  var lf = state.line.listFilter || 'all';
+  var filtered = casesWithLatest;
+  if (lf === 'unread') filtered = casesWithLatest.filter(function(x){ return x.unread > 0 && !x.hasClam; });
+  else if (lf === 'clam') filtered = casesWithLatest.filter(function(x){ return x.hasClam; });
+
+  var leftItems = filtered.map(function(item){
     var c = item.c;
     var badge = item.hasClam
       ? '<span class="badge badge-red">クレーム</span>'
@@ -2247,12 +2285,23 @@ async function renderLineMessages() {
       '</div><div class="name">'+escHtml(c.name)+'</div>' +
       '<div style="margin-top:3px">'+statusBadge(c.status)+' '+badge+'</div></div>';
   }).join('');
+
+  var filterBar =
+    '<div style="display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid #e5e7eb;background:#f9fafb;flex-wrap:wrap">' +
+    '<button class="btn btn-sm '+(lf==='all'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'all\';renderLineMessages()">全て</button>' +
+    '<button class="btn btn-sm '+(lf==='unread'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'unread\';renderLineMessages()">未対応 <span style="background:'+(lf==='unread'?'rgba(255,255,255,.3)':'#fee2e2')+';color:'+(lf==='unread'?'#fff':'#991b1b')+';border-radius:8px;padding:0 5px">'+totalUnread+'</span></button>' +
+    '<button class="btn btn-sm '+(lf==='clam'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'clam\';renderLineMessages()">クレーム <span style="background:'+(lf==='clam'?'rgba(255,255,255,.3)':'#fee2e2')+';color:'+(lf==='clam'?'#fff':'#991b1b')+';border-radius:8px;padding:0 5px">'+totalClam+'</span></button>' +
+    '</div>';
+
   document.getElementById('line-body').innerHTML =
     '<div style="display:flex;height:calc(100vh - 160px);overflow:hidden">' +
-    '<div style="width:280px;min-width:280px;background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column">' +
-    '<div style="padding:10px 12px;border-bottom:1px solid #e5e7eb">' +
+    '<div style="width:300px;min-width:300px;background:#fff;border-right:1px solid #e5e7eb;display:flex;flex-direction:column">' +
+    '<div style="padding:8px 10px;border-bottom:1px solid #e5e7eb">' +
     '<input type="text" placeholder="FL・名前で検索..." oninput="filterLineCaseList(this.value)" style="font-size:12px"></div>' +
-    '<div id="line-case-list" style="flex:1;overflow-y:auto">'+leftItems+'</div></div>' +
+    filterBar +
+    '<div id="line-case-list" style="flex:1;overflow-y:auto">' +
+    (leftItems || '<div style="text-align:center;padding:32px 16px;color:#9ca3af;font-size:13px">該当なし</div>') +
+    '</div></div>' +
     '<div id="line-thread" style="flex:1;overflow-y:auto;padding:20px;background:#f9fafb">' +
     '<div style="color:#9ca3af;text-align:center;margin-top:80px">左から案件を選択してください</div></div></div>';
   if (state.line.selectedFL) showLineThread(state.line.selectedFL);
@@ -2297,25 +2346,83 @@ async function showLineThread(fl) {
   }).join('');
   threadEl = document.getElementById('line-thread');
   if (!threadEl) return;
+
+  var cats = ['全て','管理画面','写真','クチコミ','解約','請求','LINE','その他'];
+  var statuses = ['全て','未対応','対応中','対応完了','クレーム'];
+  var mcf = state.line.msgCatFilter || 'all';
+  var msf = state.line.msgStatusFilter || 'all';
+  var catOpts = cats.map(function(c){ var v=c==='全て'?'all':c; return '<option value="'+v+'"'+(mcf===v?' selected':'')+'>'+c+'</option>'; }).join('');
+  var stOpts = statuses.map(function(s){ var v=s==='全て'?'all':s; return '<option value="'+v+'"'+(msf===v?' selected':'')+'>'+s+'</option>'; }).join('');
+  var staffList = getCsStaffList();
+  var staffOpts = '<option value="">担当者を選択</option>'+staffList.map(function(n){ return '<option>'+escHtml(n)+'</option>'; }).join('');
+
+  // フィルタ適用後のbubbles
+  var filteredMsgs = msgs.filter(function(m){
+    if (mcf !== 'all' && m.category !== mcf) return false;
+    if (msf !== 'all' && m.status !== msf) return false;
+    return true;
+  });
+  var filteredBubbles = filteredMsgs.map(function(m){
+    var isCust = m.sender==='顧客';
+    var bg = catColors[m.category]||'#f3f4f6';
+    var nameLabel = isCust && m.sender_name ? escHtml(m.sender_name) : (isCust ? '顧客' : 'FunLink');
+    var dateStr = (m.created_at||m.date||'').slice(0,16).replace('T',' ');
+    var assigneeLabel = m.assignee ? '<span style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:4px">👤 '+escHtml(m.assignee)+'</span>' : '';
+    return '<div style="display:flex;justify-content:'+(isCust?'flex-start':'flex-end')+';margin-bottom:16px">' +
+      '<div style="max-width:72%">' +
+      '<div style="font-size:11px;color:#9ca3af;margin-bottom:3px;text-align:'+(isCust?'left':'right')+'">'+dateStr+' · <b>'+nameLabel+'</b>'+assigneeLabel+'</div>' +
+      '<div style="background:'+(isCust?'#fff':'#3b82f6')+';color:'+(isCust?'#1f2937':'#fff')+';border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,.1)">'+escHtml(m.message)+'</div>' +
+      '<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;justify-content:'+(isCust?'flex-start':'flex-end')+'">' +
+      '<span class="badge" style="background:'+bg+';color:#374151">'+escHtml(m.category||'')+'</span>' +
+      '<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+escHtml(m.status||'')+'</span>' +
+      (m.reply_draft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.reply_draft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})">📋 返信案</span>':'')+'</div>' +
+      (m.reply_draft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.reply_draft)+'</div>':'') +
+      '<div style="margin-top:4px;text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
+      (m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">完了</button>':'') +
+      '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button></div>' +
+      '</div></div>';
+  }).join('');
+
   threadEl.innerHTML =
-    '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+    // ヘッダー
+    '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:12px">' +
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
     '<div><div style="font-size:18px;font-weight:700;color:#3b82f6">'+escHtml(fl)+'</div><div style="font-size:14px;font-weight:600">'+escHtml(c.name)+'</div></div>' +
     '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-    (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary">&#128279; meo-dash</a>':'')+
+    (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary">🔗 meo-dash</a>':'')+
     '<button class="btn btn-sm" style="background:#059669;color:#fff" onclick="generateGeminiReply(\''+escHtml(fl)+'\')">✨ AI返信生成</button>' +
     '</div></div>' +
-    (bubbles||'<div style="text-align:center;color:#9ca3af;padding:40px 0">メッセージがありません</div>') +
+    // カテゴリ・ステータスフィルタ
+    '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">' +
+    '<label style="font-size:11px;color:#6b7280;font-weight:600;margin:0">カテゴリ:</label>' +
+    '<select style="font-size:12px;padding:3px 8px;border:1px solid #d1d5db;border-radius:6px;min-width:0" onchange="state.line.msgCatFilter=this.value;showLineThread(\''+escHtml(fl)+'\')">'+catOpts+'</select>' +
+    '<label style="font-size:11px;color:#6b7280;font-weight:600;margin:0">ステータス:</label>' +
+    '<select style="font-size:12px;padding:3px 8px;border:1px solid #d1d5db;border-radius:6px;min-width:0" onchange="state.line.msgStatusFilter=this.value;showLineThread(\''+escHtml(fl)+'\')">'+stOpts+'</select>' +
+    (filteredMsgs.length !== msgs.length ? '<span style="font-size:11px;color:#6b7280">'+filteredMsgs.length+'/'+msgs.length+'件表示</span>' : '') +
+    '</div></div>' +
+    // メッセージ一覧
+    (filteredBubbles||'<div style="text-align:center;color:#9ca3af;padding:40px 0">'+
+    (msgs.length?'フィルタ条件に一致するメッセージがありません':'メッセージがありません')+'</div>') +
     '<div id="reply-suggestions"></div>' +
+    // メッセージ追加フォーム
     '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px;margin-top:16px">' +
-    '<div style="font-size:13px;font-weight:700;margin-bottom:10px">メッセージを追加</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">' +
+    '<div style="font-size:13px;font-weight:700;margin-bottom:12px">📝 メッセージを追加</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
     '<div><label>日付</label><input type="date" id="lm_date" value="'+today()+'"></div>' +
-    '<div><label>送信者</label><select id="lm_sender"><option>顧客</option><option>FunLink</option></select></div>' +
     '<div><label>カテゴリ</label><select id="lm_cat"><option>管理画面</option><option>写真</option><option>クチコミ</option><option>解約</option><option>請求</option><option>LINE</option><option>その他</option></select></div></div>' +
-    '<div class="form-group"><label>メッセージ内容</label><textarea id="lm_msg" placeholder="問い合わせ内容..."></textarea></div>' +
-    '<div class="form-group"><label>返信案（任意）</label><textarea id="lm_reply" style="min-height:60px" placeholder="送付する返信文..."></textarea></div>' +
-    '<div class="form-group"><label>ステータス</label><select id="lm_status"><option>未対応</option><option>対応中</option><option>対応完了</option><option>クレーム</option></select></div>' +
-    '<div style="text-align:right"><button class="btn btn-primary" onclick="saveLineMsg(\''+escHtml(fl)+'\')">追加</button></div></div>';
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+    '<div><label>送信者</label>' +
+    '<select id="lm_sender" onchange="toggleSenderName(this.value)">' +
+    '<option value="顧客">顧客</option><option value="FunLink">FunLink</option></select></div>' +
+    '<div id="lm_sender_name_wrap"><label>送信者名（顧客）</label><input type="text" id="lm_sender_name" placeholder="山田 太郎"></div></div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+    '<div><label>ステータス</label><select id="lm_status"><option>未対応</option><option>対応中</option><option>対応完了</option><option>クレーム</option></select></div>' +
+    '<div><label>担当者</label><select id="lm_assignee">'+staffOpts+'</select></div></div>' +
+    '<div class="form-group"><label>メッセージ内容 <span style="color:#ef4444">*</span></label><textarea id="lm_msg" placeholder="問い合わせ内容..."></textarea></div>' +
+    '<div class="form-group"><label>返信案（任意）</label><textarea id="lm_reply" style="min-height:60px" placeholder="送付予定の返信文を入力..."></textarea></div>' +
+    '<div style="display:flex;justify-content:flex-end;gap:8px">' +
+    '<button class="btn btn-secondary" onclick="generateGeminiReply(\''+escHtml(fl)+'\')">✨ AI返信生成</button>' +
+    '<button class="btn btn-primary" onclick="saveLineMsg(\''+escHtml(fl)+'\')">追加</button></div></div>';
   // スレッド末尾にスクロール
   threadEl.scrollTop = threadEl.scrollHeight;
   // 最新の顧客メッセージに対して返信候補を表示
@@ -2324,6 +2431,11 @@ async function showLineThread(fl) {
     if (msgs[i].sender === '顧客') { lastCust = msgs[i]; break; }
   }
   if (lastCust) showReplySuggestions(lastCust.message, fl);
+}
+
+function toggleSenderName(val) {
+  var wrap = document.getElementById('lm_sender_name_wrap');
+  if (wrap) wrap.style.display = val === '顧客' ? '' : 'none';
 }
 
 async function markLineDone(id, fl){
@@ -2341,7 +2453,8 @@ async function saveLineMsg(fl){
     case_fl: fl,
     date: (document.getElementById('lm_date')||{}).value||today(),
     sender: (document.getElementById('lm_sender')||{}).value||'顧客',
-    sender_name: '',
+    sender_name: (document.getElementById('lm_sender_name')||{}).value||'',
+    assignee: (document.getElementById('lm_assignee')||{}).value||'',
     category: (document.getElementById('lm_cat')||{}).value||'その他',
     message: msg,
     reply_draft: (document.getElementById('lm_reply')||{}).value||'',
@@ -2363,36 +2476,58 @@ async function deleteLineMsg(id, fl){
 function renderLineWebhook() {
   var s=getStore();
   var cfg=s.lineConfig||{};
-  var configured = cfg.token && cfg.server;
+  var configured = !!(cfg.token && cfg.server);
+  var statusBadge = configured
+    ? '<span class="badge badge-green">✓ 設定済み</span>'
+    : '<span class="badge badge-yellow">⚠ 未設定</span>';
   document.getElementById('line-body').innerHTML =
-    '<div style="max-width:720px">' +
-    '<div class="card" style="margin-bottom:16px"><div class="card-title">システムフロー</div>' +
-    '<pre style="background:#1a2744;color:#e2e8f0;border-radius:8px;padding:16px;font-size:13px;line-height:2;overflow-x:auto">' +
-    '顧客 → LINE公式アカウント\n' +
-    '           ↓ Webhook\n' +
-    'Webhookサーバー（Node.js / Cloud Run）\n' +
-    '           ↓\n' +
-    '顧客特定（FLコード照合）\n' +
-    '           ↓\n' +
-    'Claude API → 返信案生成\n' +
-    '           ↓\n' +
-    'Slack通知 → 担当者が確認 → 手動送信</pre></div>' +
-    '<div class="card"><div class="card-title">&#9881;&#65039; Webhook設定</div>' +
-    '<div class="form-group"><label>Channel Access Token</label><input type="password" id="lw_token" value="'+escHtml(cfg.token||'')+'" placeholder="LINE Messaging API の Channel Access Token"></div>' +
-    '<div class="form-group"><label>Channel Secret</label><input type="password" id="lw_secret" value="'+escHtml(cfg.secret||'')+'" placeholder="LINE Messaging API の Channel Secret"></div>' +
-    '<div class="form-group"><label>Slack Webhook URL</label><input type="text" id="lw_slack" value="'+escHtml(cfg.slack||'')+'" placeholder="https://hooks.slack.com/services/..."></div>' +
-    '<div class="form-group"><label>Webhook サーバーURL</label><input type="text" id="lw_server" value="'+escHtml(cfg.server||'')+'" placeholder="https://your-server.run.app/webhook"></div>' +
-    '<div style="display:flex;gap:10px;align-items:center;margin-top:16px">' +
+    '<div style="max-width:760px">' +
+
+    // システムフロー
+    '<div class="card" style="margin-bottom:16px">' +
+    '<div class="card-title">📊 自動返信フロー設計</div>' +
+    '<div style="display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:4px">' +
+    ['顧客がLINE送信','Webhook受信\n(Node.js)','LINE UserID照合\n→FLコード特定','Gemini AI\n返信案生成','Slack通知\n→担当者確認','手動でLINE返信'].map(function(label,i,arr){
+      var icons=['💬','⚡','🔍','✨','📲','✅'];
+      return '<div style="flex:1;min-width:100px;text-align:center;padding:10px 8px;'+(i<arr.length-1?'border-right:1px dashed #e5e7eb;':'')+'">'+
+        '<div style="font-size:22px;margin-bottom:4px">'+icons[i]+'</div>'+
+        '<div style="font-size:11px;color:#374151;font-weight:600;line-height:1.4">'+label.replace(/\n/g,'<br>')+'</div>'+
+        (i<arr.length-1?'<div style="color:#9ca3af;margin-top:6px;font-size:16px">→</div>':'')+'</div>';
+    }).join('')+
+    '</div></div>' +
+
+    // Webhook設定フォーム
+    '<div class="card" style="margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
+    '<div class="card-title" style="margin:0">⚙️ Webhook設定</div>' + statusBadge + '</div>' +
+    '<div class="form-row">' +
+    '<div class="form-group"><label>Channel Access Token</label><input type="password" id="lw_token" value="'+escHtml(cfg.token||'')+'" placeholder="LINE Messaging API のトークン"></div>' +
+    '<div class="form-group"><label>Channel Secret</label><input type="password" id="lw_secret" value="'+escHtml(cfg.secret||'')+'" placeholder="LINE Messaging API のシークレット"></div></div>' +
+    '<div class="form-group"><label>Webhook サーバー URL</label><input type="text" id="lw_server" value="'+escHtml(cfg.server||'')+'" placeholder="https://your-server.run.app/webhook"></div>' +
+    '<div class="form-group"><label>Slack Webhook URL <span style="font-size:11px;color:#6b7280">（Slack通知先）</span></label><input type="text" id="lw_slack" value="'+escHtml(cfg.slack||'')+'" placeholder="https://hooks.slack.com/services/..."></div>' +
+    '<div style="display:flex;gap:10px;align-items:center;margin-top:4px">' +
     '<button class="btn btn-primary" onclick="saveLineConfig()">設定を保存</button>' +
-    (configured?'<span class="badge badge-green">&#10003; 設定済み</span>':'<span class="badge badge-gray">未設定</span>')+'</div></div>' +
-    '<div class="card" style="margin-top:16px"><div class="card-title">&#128203; 設定手順</div>' +
-    '<ol style="font-size:13px;line-height:2.2;color:#374151;padding-left:20px">' +
-    '<li>LINE Official Account Manager → Messaging API 設定の Webhook URLに上記のサーバーURLを設定</li>' +
-    '<li>「Webhookの利用」をオン</li>' +
-    '<li>Channel Access Token / Channel Secret をコピーして上の欄に貼り付け</li>' +
-    '<li>Slackの Incoming Webhook URL を設定</li>' +
-    '<li>Webhookサーバー（Node.js）を Cloud Run にデプロイ</li>' +
+    (cfg.server?'<button class="btn btn-secondary" onclick="testWebhook()">接続テスト</button>':'')+'</div></div>' +
+
+    // 設定手順
+    '<div class="card">' +
+    '<div class="card-title">📋 設定手順</div>' +
+    '<ol style="font-size:13px;line-height:2.4;color:#374151;padding-left:20px">' +
+    '<li>Webhookサーバー（Node.js）を <b>Cloud Run</b> または <b>Render</b> にデプロイし、サーバーURLを取得</li>' +
+    '<li><a href="https://manager.line.biz/" target="_blank" style="color:#4F46E5">LINE Official Account Manager</a> → Messaging API → Webhook URL に上記サーバーURLを設定し「Webhookの利用」をオン</li>' +
+    '<li>Channel Access Token・Channel Secret を上の欄に入力して保存</li>' +
+    '<li>Slack Incoming Webhook URL を設定（担当者への通知先）</li>' +
+    '<li>設定後「接続テスト」ボタンで動作確認</li>' +
     '</ol></div></div>';
+}
+
+async function testWebhook() {
+  var s=getStore(); var cfg=s.lineConfig||{};
+  if (!cfg.server) { toast('サーバーURLが未設定です', true); return; }
+  try {
+    var res = await fetch(cfg.server+'/health', { method:'GET' });
+    toast(res.ok ? 'Webhook サーバー接続OK ✅' : 'エラー: HTTP '+res.status, !res.ok);
+  } catch(e) { toast('接続失敗: '+e.message, true); }
 }
 
 function saveLineConfig(){
@@ -2404,20 +2539,60 @@ function saveLineConfig(){
 function renderLineAutoLogs(){
   var s=getStore();
   var logs=(s.lineAutoLogs||[]).slice().sort(function(a,b){return (b.ts||'').localeCompare(a.ts||'');});
+  var webhookConfigured = !!(s.lineConfig && s.lineConfig.server);
+
+  var statusBanner = webhookConfigured
+    ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:8px;font-size:13px"><span style="color:#059669;font-weight:700">⚡ Webhook接続中</span><span style="color:#374151">— サーバー: '+escHtml(s.lineConfig.server)+'</span></div>'
+    : '<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-bottom:14px">' +
+      '<div style="font-weight:700;color:#854d0e;margin-bottom:8px">⚠️ Webhook未接続 — 設計済み・待機中</div>' +
+      '<div style="font-size:12px;color:#713f12;line-height:1.8">' +
+      '自動返信フローは設計済みです。Webhook設定タブでサーバーURLを登録すると本番稼働します。<br>' +
+      '稼働後このログに受信メッセージ・AI返信案・Slack通知状況が記録されます。' +
+      '</div></div>';
+
+  // ログスキーマ説明（設計ドキュメント）
+  var schemaDoc =
+    '<div class="card" style="margin-top:16px">' +
+    '<div class="card-title">📐 ログスキーマ設計</div>' +
+    '<div style="font-size:12px;color:#374151;line-height:1.8">' +
+    '<div style="background:#f9fafb;border-radius:6px;padding:12px;font-family:monospace;font-size:11px;overflow-x:auto">' +
+    '{\n  ts: "2026-06-27T10:30:00Z",   // 受信日時\n' +
+    '  fl: "FL00123",                  // FLコード（LINE ID照合後）\n' +
+    '  lineUser: "U1234abcd",          // LINE User ID\n' +
+    '  displayName: "山田 太郎",        // LINEの表示名\n' +
+    '  category: "クチコミ",            // AI分類（管理画面/写真/クチコミ/解約/請求/その他）\n' +
+    '  message: "クチコミに返信できません", // 顧客のメッセージ\n' +
+    '  aiReply: "お世話になっております...", // Gemini生成の返信案\n' +
+    '  slackNotified: true,            // Slack通知済みフラグ\n' +
+    '  replied: false                  // FunLinkが返信済みかどうか\n' +
+    '}' +
+    '</div></div></div>';
+
   var rows=logs.length?logs.map(function(l){
     var c=MASTER_CASES.find(function(x){return x.fl===l.fl;});
-    return '<tr><td style="font-size:11px">'+escHtml(l.ts||'-')+'</td><td>'+escHtml(l.lineUser||'-')+'</td>' +
-      '<td>'+(c?escHtml(c.name):escHtml(l.fl||'-'))+'</td>' +
+    return '<tr>' +
+      '<td style="font-size:11px;white-space:nowrap">'+escHtml((l.ts||'-').slice(0,16).replace('T',' '))+'</td>' +
+      '<td style="font-size:12px">'+escHtml(l.displayName||l.lineUser||'-')+'</td>' +
+      '<td>'+(c?'<span class="badge badge-blue">'+escHtml(c.fl)+'</span> '+escHtml(c.name):escHtml(l.fl||'-'))+'</td>' +
       '<td><span class="badge badge-blue">'+escHtml(l.category||'-')+'</span></td>' +
-      '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(l.message||'')+'</td>' +
+      '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px">'+escHtml(l.message||'')+'</td>' +
+      '<td>'+(l.aiReply?'<span class="badge badge-purple">AI案あり</span>':'<span class="badge badge-gray">-</span>')+'</td>' +
+      '<td>'+(l.slackNotified?'<span class="badge badge-blue">Slack済</span>':'<span class="badge badge-gray">-</span>')+'</td>' +
       '<td><span class="badge '+(l.replied?'badge-green':'badge-yellow')+'">'+(l.replied?'返信済':'未返信')+'</span></td></tr>';
-  }).join(''):'<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px">自動返信ログがありません（Webhook受信待定）</td></tr>';
+  }).join(''):'';
+
   document.getElementById('line-body').innerHTML=
-    '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
-    '<div class="card-title" style="margin:0">自動返信ログ</div>' +
-    '<button class="btn btn-sm btn-secondary" onclick="clearLineAutoLogs()">クリア</button></div>' +
-    '<div class="table-wrap"><table><thead><tr><th>受信日時</th><th>LINEユーザー</th><th>案件名</th><th>カテゴリ</th><th>メッセージ</th><th>状態</th></tr></thead>' +
-    '<tbody>'+rows+'</tbody></table></div></div>';
+    '<div class="card">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+    '<div class="card-title" style="margin:0">⚡ 自動返信ログ</div>' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn btn-sm btn-secondary" onclick="loadModule(\'line\');state.line.tab=1">⚙️ Webhook設定</button>' +
+    (logs.length?'<button class="btn btn-sm btn-secondary" onclick="clearLineAutoLogs()">クリア</button>':'')+'</div></div>' +
+    statusBanner +
+    (logs.length
+      ? '<div class="table-wrap"><table><thead><tr><th>受信日時</th><th>表示名</th><th>案件</th><th>分類</th><th>メッセージ</th><th>AI返信案</th><th>Slack</th><th>状態</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      : '<div style="text-align:center;color:#9ca3af;padding:32px 0;font-size:13px">受信ログなし<br><span style="font-size:12px">Webhook接続後、受信メッセージが自動記録されます</span></div>') +
+    '</div>' + schemaDoc;
 }
 function clearLineAutoLogs(){
   if(!confirm('自動返信ログをクリアしますか？'))return;
