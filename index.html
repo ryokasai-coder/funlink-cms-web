@@ -2298,10 +2298,12 @@ async function showLineThread(fl) {
   threadEl = document.getElementById('line-thread');
   if (!threadEl) return;
   threadEl.innerHTML =
-    '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px">' +
+    '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
     '<div><div style="font-size:18px;font-weight:700;color:#3b82f6">'+escHtml(fl)+'</div><div style="font-size:14px;font-weight:600">'+escHtml(c.name)+'</div></div>' +
-    (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary" style="margin-left:auto">&#128279; meo-dash</a>':'')+
-    '</div>' +
+    '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+    (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary">&#128279; meo-dash</a>':'')+
+    '<button class="btn btn-sm" style="background:#059669;color:#fff" onclick="generateGeminiReply(\''+escHtml(fl)+'\')">✨ AI返信生成</button>' +
+    '</div></div>' +
     (bubbles||'<div style="text-align:center;color:#9ca3af;padding:40px 0">メッセージがありません</div>') +
     '<div id="reply-suggestions"></div>' +
     '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px;margin-top:16px">' +
@@ -6047,6 +6049,75 @@ var DEFAULT_REPLIES = [
   'お世話になっております。\nご連絡ありがとうございます。\nただいま確認中です。確認でき次第、折り返しご連絡いたします。',
 ];
 
+async function generateGeminiReply(fl) {
+  var apiKey = localStorage.getItem('funlink_gemini_key');
+  if (!apiKey) {
+    toast('Gemini APIキーが未設定です（設定 ⚙️ → AI設定 で登録してください）', true);
+    return;
+  }
+  var c = MASTER_CASES.find(function(x){ return x.fl===fl; }) || {};
+  var msgs = await _loadLineThread(fl);
+  if (!msgs.length) { toast('メッセージがありません', true); return; }
+
+  var btn = document.getElementById('gemini-gen-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ 生成中...'; }
+
+  var historyLines = msgs.slice(0, -1).map(function(m){
+    var name = m.sender === '顧客' ? (m.sender_name || '顧客') : 'FunLink担当';
+    return '【' + name + '】\n' + (m.message || '');
+  }).join('\n\n');
+  var lastMsg = msgs[msgs.length - 1] || {};
+  var lastSender = lastMsg.sender === '顧客' ? (lastMsg.sender_name || '顧客') : 'FunLink担当';
+  var lastText = lastMsg.message || '';
+
+  var prompt =
+    'あなたはFunLink（MEO対策サービス・株式会社Funrix）のカスタマーサポート担当です。\n' +
+    '以下の会話履歴と最新メッセージを踏まえて、最新メッセージへの返信文を作成してください。\n\n' +
+    '【店舗・顧客情報】\n' +
+    'FLコード: ' + fl + '\n' +
+    '店舗名: ' + (c.name || '不明') + '\n\n' +
+    '【これまでの会話履歴】\n' +
+    (historyLines || '（履歴なし）') + '\n\n' +
+    '【最新メッセージ（返信が必要）】\n' +
+    '【' + lastSender + '】\n' + lastText + '\n\n' +
+    '【返信作成の指示】\n' +
+    '・FunLinkスタッフとして丁寧・簡潔な日本語で返信してください\n' +
+    '・「お世話になっております。」から始めてください\n' +
+    '・会話の文脈を踏まえて、的確に回答してください\n' +
+    '・署名は不要です\n' +
+    '・返信文のみを出力してください（説明・前置きは不要）';
+
+  try {
+    var res = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + apiKey,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      }
+    );
+    var json = await res.json();
+    if (json.error) throw new Error(json.error.message);
+    var reply = json.candidates[0].content.parts[0].text.trim();
+    showGeminiResult(reply, fl);
+  } catch(e) {
+    toast('Gemini API エラー: ' + e.message, true);
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = '✨ AI返信生成'; }
+}
+
+function showGeminiResult(reply, fl) {
+  var safeReply = reply.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n');
+  openModal('✨ Gemini AI 返信案',
+    '<div style="background:#f0fdf4;border-left:3px solid #10b981;padding:14px 16px;border-radius:8px;font-size:13px;line-height:1.9;white-space:pre-wrap;color:#1f2937;margin-bottom:12px">' +
+    escHtml(reply) + '</div>' +
+    '<div style="font-size:12px;color:#6b7280">生成されました。そのまま使用するか、内容を確認して返信欄に入力してください。</div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>' +
+    '<button class="btn btn-primary" onclick="navigator.clipboard&&navigator.clipboard.writeText(\'' + safeReply + '\').then(function(){toast(\'コピーしました\');closeModal()})">📋 コピー</button>' +
+    '<button class="btn btn-success" onclick="var t=document.getElementById(\'lm_reply\');if(t){t.value=\'' + safeReply + '\';closeModal();toast(\'返信欄に入力しました\')}">✏️ 返信欄に入力</button>'
+  );
+}
+
 function matchReplyPattern(text) {
   var t = (text||'').toLowerCase();
   for (var i = 0; i < REPLY_PATTERNS.length; i++) {
@@ -6066,10 +6137,12 @@ function showReplySuggestions(msgText, fl) {
   var result = matchReplyPattern(msgText);
   if (!state.line.suggestions) state.line.suggestions = {};
   state.line.suggestions[fl] = result.replies;
+  var hasKey = !!localStorage.getItem('funlink_gemini_key');
   var html = '<div style="background:#eff6ff;border-radius:10px;border:1px solid #bfdbfe;padding:16px;margin-top:16px">' +
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
-    '<div style="font-size:13px;font-weight:700;color:#1e40af">&#128161; 返信案（' + escHtml(result.category) + '）<span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:8px">顧客の最新メッセージに基づく候補</span></div>' +
-    '<button class="btn btn-sm" style="background:#7c3aed;color:#fff;white-space:nowrap" onclick="showAiPromptModal(\'' + escHtml(fl) + '\')">&#129302; AIプロンプト生成</button>' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
+    '<div style="font-size:13px;font-weight:700;color:#1e40af">💡 返信候補（' + escHtml(result.category) + '）<span style="font-size:11px;font-weight:400;color:#6b7280;margin-left:8px">パターンマッチング</span></div>' +
+    '<button id="gemini-gen-btn" class="btn btn-sm" style="background:'+(hasKey?'#059669':'#9ca3af')+';color:#fff;white-space:nowrap" onclick="generateGeminiReply(\'' + escHtml(fl) + '\')">' +
+    (hasKey ? '✨ Gemini AI返信生成' : '✨ Gemini（APIキー未設定）') + '</button>' +
     '</div>';
   result.replies.forEach(function(r, i) {
     html += '<div style="background:#fff;border-radius:8px;border:1px solid #dbeafe;padding:12px;margin-bottom:8px">' +
@@ -6317,6 +6390,25 @@ function renderSettings() {
         '<div id="product-service-body">'+renderProductServiceSection()+'</div>'+
       '</div>'+
 
+      // Gemini AI設定
+      '<div style="padding-top:20px;border-top:1px solid #f3f4f6;margin-bottom:28px">'+
+        '<div style="font-size:14px;font-weight:700;color:#1f2937;margin-bottom:4px">🤖 AI設定（Gemini）</div>'+
+        '<div style="font-size:12px;color:#6b7280;margin-bottom:12px">'+
+          'LINE返信文の自動生成に使用します。'+
+          '<a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#4F46E5;margin-left:4px">Google AI Studio</a>'+
+          ' でAPIキーを取得してください。'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;align-items:stretch">'+
+          '<input type="password" id="gemini-key-input" value="'+escHtml(localStorage.getItem(\'funlink_gemini_key\')||\'\')+'"'+
+            ' placeholder="AIzaSy..." style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;font-family:monospace">'+
+          '<button class="btn btn-primary" onclick="saveGeminiKey()">保存</button>'+
+          '<button class="btn btn-secondary" onclick="testGeminiKey()">テスト</button>'+
+        '</div>'+
+        (localStorage.getItem(\'funlink_gemini_key\')
+          ? '<div style="margin-top:8px;font-size:12px;color:#059669;font-weight:600">✅ APIキー設定済み</div>'
+          : '<div style="margin-top:8px;font-size:12px;color:#9ca3af">未設定 — LINE対応でAI返信生成が使えません</div>')+
+      '</div>'+
+
       // GASデプロイ手順
       '<div style="padding-top:20px;border-top:1px solid #f3f4f6">'+
         '<div style="font-size:13px;font-weight:700;color:#1f2937;margin-bottom:8px">📋 GASデプロイ手順</div>'+
@@ -6395,6 +6487,32 @@ async function resetUserPassword(email) {
   } else {
     toast('リセットメールを送信しました');
   }
+}
+
+function saveGeminiKey() {
+  var key = (document.getElementById('gemini-key-input').value || '').trim();
+  localStorage.setItem('funlink_gemini_key', key);
+  toast(key ? 'Gemini APIキーを保存しました' : 'APIキーを削除しました');
+  renderSettings();
+}
+
+async function testGeminiKey() {
+  var key = (document.getElementById('gemini-key-input').value || '').trim();
+  if (!key) { toast('APIキーを入力してください', true); return; }
+  var btn = event.target; btn.disabled = true; btn.textContent = '確認中...';
+  try {
+    var res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'こんにちは' }] }] })
+    });
+    var json = await res.json();
+    if (json.error) throw new Error(json.error.message);
+    toast('Gemini API 接続OK ✅');
+  } catch(e) {
+    toast('APIエラー: ' + e.message, true);
+  }
+  btn.disabled = false; btn.textContent = 'テスト';
 }
 
 function saveGasUrl() {
