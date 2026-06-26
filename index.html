@@ -140,6 +140,16 @@ hr{border:none;border-top:1px solid #f3f4f6;margin:14px 0}
 .info-grid .key{color:#6b7280;font-weight:500}
 .info-grid .val{color:#1f2937}
 .row-click{cursor:pointer}
+/* ===== ログイン画面 ===== */
+#login-screen{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a 0%,#1a2744 60%,#1e3a5f 100%);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.login-service-card{background:#fff;border-radius:14px;padding:28px 32px;width:220px;text-align:center;cursor:pointer;transition:transform .2s,box-shadow .2s;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.login-service-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.4)}
+.login-service-card.disabled{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);cursor:default}
+.login-service-card.disabled:hover{transform:none;box-shadow:none}
+.login-input{background:rgba(255,255,255,.1)!important;border:1px solid rgba(255,255,255,.2)!important;color:#fff!important;border-radius:8px;padding:10px 14px;width:100%;font-size:14px;font-family:inherit}
+.login-input:focus{border-color:#3b82f6!important;box-shadow:0 0 0 3px rgba(59,130,246,.3)!important;outline:none}
+.login-input::placeholder{color:rgba(255,255,255,.4)}
+.login-box{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:28px;width:380px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
@@ -308,7 +318,70 @@ async function initAppFromSupabase() {
 </script>
 </head>
 <body>
-<div id="sidebar">
+<!-- ===== ログイン画面 ===== -->
+<div id="login-screen">
+  <!-- サービス選択 -->
+  <div id="login-service-select">
+    <div style="text-align:center;margin-bottom:40px">
+      <div style="font-size:30px;font-weight:800;color:#fff;letter-spacing:1px">Funrix <span style="color:#3b82f6">管理ポータル</span></div>
+      <div style="font-size:13px;color:#94a3b8;margin-top:8px">ご利用のサービスを選択してください</div>
+    </div>
+    <div style="display:flex;gap:20px">
+      <div class="login-service-card" onclick="selectLoginService('funlink')">
+        <div style="font-size:40px;margin-bottom:12px">📋</div>
+        <div style="font-size:18px;font-weight:700;color:#1a2744">FunLink</div>
+        <div style="font-size:12px;color:#6b7280;margin-top:4px">顧客管理システム</div>
+        <div style="margin-top:12px;background:#3b82f6;color:#fff;border-radius:8px;padding:6px 0;font-size:13px;font-weight:600">ログイン →</div>
+      </div>
+      <div class="login-service-card disabled" onclick="selectLoginService('reelbox')">
+        <div style="position:relative">
+          <span style="position:absolute;top:-18px;right:-22px;background:#f59e0b;color:#fff;font-size:10px;padding:2px 8px;border-radius:9px;font-weight:700">準備中</span>
+        </div>
+        <div style="font-size:40px;margin-bottom:12px;opacity:.4">🎬</div>
+        <div style="font-size:18px;font-weight:700;color:rgba(255,255,255,.5)">ReelBox</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.3);margin-top:4px">管理システム</div>
+        <div style="margin-top:12px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.4);border-radius:8px;padding:6px 0;font-size:13px;font-weight:600">近日公開</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FunLinkログインフォーム -->
+  <div id="login-form" style="display:none">
+    <div style="text-align:center;margin-bottom:28px">
+      <button onclick="backToServiceSelect()" style="background:none;border:none;color:#64748b;font-size:12px;cursor:pointer;display:block;margin:0 auto 14px">← サービス選択に戻る</button>
+      <div style="font-size:26px;font-weight:800;color:#fff">FunLink <span style="color:#3b82f6">管理</span></div>
+      <div style="font-size:13px;color:#94a3b8;margin-top:6px">アカウントでログイン</div>
+    </div>
+    <div class="login-box">
+      <div class="form-group">
+        <label style="font-size:12px;color:#94a3b8">メールアドレス</label>
+        <input type="email" id="login-email" class="login-input" placeholder="xxx@funrix.co.jp"
+          onkeydown="if(event.key==='Enter')document.getElementById('login-password').focus()">
+      </div>
+      <div class="form-group">
+        <label style="font-size:12px;color:#94a3b8">パスワード</label>
+        <input type="password" id="login-password" class="login-input" placeholder="••••••••"
+          onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="login-error" style="color:#fc8181;font-size:12px;margin-bottom:12px;text-align:center;min-height:18px"></div>
+      <button id="login-btn" onclick="doLogin()"
+        style="width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s"
+        onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+        ログイン
+      </button>
+    </div>
+  </div>
+
+  <!-- ReelBox準備中 -->
+  <div id="login-coming-soon" style="display:none;text-align:center;color:#fff">
+    <button onclick="backToServiceSelect()" style="background:none;border:none;color:#64748b;font-size:12px;cursor:pointer;display:block;margin:0 auto 24px">← サービス選択に戻る</button>
+    <div style="font-size:52px;margin-bottom:16px">🎬</div>
+    <div style="font-size:24px;font-weight:700">ReelBox 管理システム</div>
+    <div style="font-size:14px;color:#94a3b8;margin-top:10px">現在準備中です。近日公開予定。</div>
+  </div>
+</div>
+<!-- ===== メインアプリ ===== -->
+<div id="sidebar" style="display:none">
   <div id="sidebar-header">
     <div class="logo">Funrix<span>顧客管理</span>システム</div>
     <div style="font-size:11px;color:#64748b;margin-top:4px">管理ポータル v2</div>
@@ -328,8 +401,9 @@ async function initAppFromSupabase() {
     <div class="nav-item" data-module="learning"><span class="icon">📚</span>MEO学習</div>
     <div class="nav-item" data-module="settings" style="margin-top:auto;border-top:1px solid #1e293b;padding-top:8px"><span class="icon">⚙️</span>設定</div>
   </nav>
+  <div id="sidebar-user" style="padding:10px 12px;border-top:1px solid #253461;background:#141f38"></div>
 </div>
-<div id="main">
+<div id="main" style="display:none">
   <div id="topbar">
     <h1 id="page-title">ダッシュボード</h1>
     <div style="flex:1"></div>
@@ -6166,14 +6240,39 @@ function setProductService(idx, value) {
   toast('保存しました');
 }
 
-modules.settings = function() { renderSettings(); };
+modules.settings = function() { renderSettings(); if (isOwner()) setTimeout(loadUserList, 50); };
+
+var USER_ADMIN_URL = 'https://xfumvuxahjferrapdywj.supabase.co/functions/v1/user-admin';
+
+async function callUserAdmin(action, params) {
+  var res = await _sb.auth.getSession();
+  var token = res.data && res.data.session ? res.data.session.access_token : '';
+  var r = await fetch(USER_ADMIN_URL, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ action: action }, params || {}))
+  });
+  return r.json();
+}
 
 function renderSettings() {
   var gasUrl = localStorage.getItem('funlink_gas_url') || '';
   var isConnected = !!gasUrl;
+  var ownerSection = isOwner()
+    ? '<div style="padding-top:20px;border-top:1px solid #f3f4f6;margin-bottom:28px">'+
+        '<div style="font-size:14px;font-weight:700;color:#1f2937;margin-bottom:4px">👥 ユーザー管理</div>'+
+        '<div style="font-size:12px;color:#6b7280;margin-bottom:12px">ユーザーアカウントの追加・削除・パスワードリセットができます。</div>'+
+        '<div style="display:flex;gap:8px;margin-bottom:14px">'+
+          '<input type="email" id="invite-email" placeholder="招待するメールアドレス" style="flex:1;padding:8px 12px;border:1px solid #d1d5db;border-radius:7px;font-size:13px">'+
+          '<button class="btn btn-primary" onclick="inviteUser()">📧 招待メール送信</button>'+
+        '</div>'+
+        '<div id="user-list-area"><div style="font-size:12px;color:#9ca3af;padding:8px 0">読み込み中...</div></div>'+
+      '</div>'
+    : '';
   document.getElementById('content').innerHTML =
     '<div class="card" style="max-width:680px;margin:0 auto">'+
       '<div class="card-title">⚙️ システム設定</div>'+
+      ownerSection+
 
       // Drive設定
       '<div style="margin-bottom:28px">'+
@@ -6230,6 +6329,72 @@ function renderSettings() {
         '</ol>'+
       '</div>'+
     '</div>';
+}
+
+async function loadUserList() {
+  var el = document.getElementById('user-list-area');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:12px;color:#9ca3af;padding:8px 0">読み込み中...</div>';
+  var res = await callUserAdmin('list');
+  if (!res.ok) { el.innerHTML = '<div style="color:#ef4444;font-size:12px">読み込みエラー: ' + escHtml(res.error||'') + '</div>'; return; }
+  var users = (res.users || []).sort(function(a,b){ return (a.email||'').localeCompare(b.email||''); });
+  if (!users.length) { el.innerHTML = '<div style="font-size:12px;color:#9ca3af">ユーザーなし</div>'; return; }
+  var rows = users.map(function(u){
+    var isMe = currentUser && u.email === currentUser.email;
+    var ownerBadge = OWNER_EMAILS.indexOf(u.email) !== -1
+      ? '<span style="background:#f59e0b;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:6px">オーナー</span>'
+      : '<span style="background:#60a5fa;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:6px">ユーザー</span>';
+    var lastLogin = u.last_sign_in_at ? u.last_sign_in_at.slice(0,16).replace('T',' ') : '未ログイン';
+    var actions = isMe ? '<span style="font-size:11px;color:#9ca3af">（自分）</span>'
+      : '<button class="btn btn-sm btn-secondary" onclick="resetUserPassword(\''+escHtml(u.email)+'\')">🔑 PW リセット</button>'+
+        (OWNER_EMAILS.indexOf(u.email) === -1
+          ? ' <button class="btn btn-sm btn-danger" onclick="deleteUser(\''+escHtml(u.id)+'\',\''+escHtml(u.email)+'\')">削除</button>'
+          : '');
+    return '<tr><td><div style="font-weight:500">'+escHtml(u.email||'')+'</div><div style="font-size:11px;color:#9ca3af">最終ログイン: '+lastLogin+'</div></td>'+
+      '<td>'+ownerBadge+'</td><td style="white-space:nowrap">'+actions+'</td></tr>';
+  }).join('');
+  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>メールアドレス</th><th>ロール</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+
+async function inviteUser() {
+  var email = (document.getElementById('invite-email').value || '').trim();
+  if (!email) { toast('メールアドレスを入力してください', true); return; }
+  if (!confirm(email + ' に招待メールを送りますか？\n本人がリンクをクリックしてパスワードを設定できます。')) return;
+  toast('招待メールを送信中...');
+  var res = await callUserAdmin('invite', { email: email });
+  if (res.ok) {
+    toast('招待メールを送信しました');
+    document.getElementById('invite-email').value = '';
+    loadUserList();
+  } else {
+    toast('エラー: ' + (res.error || '送信失敗'), true);
+  }
+}
+
+async function deleteUser(userId, email) {
+  if (!confirm(email + ' を削除しますか？\nこの操作は取り消せません。')) return;
+  var res = await callUserAdmin('delete', { userId: userId });
+  if (res.ok) { toast('削除しました'); loadUserList(); }
+  else toast('エラー: ' + (res.error || '削除失敗'), true);
+}
+
+async function resetUserPassword(email) {
+  var res = await callUserAdmin('reset', { email: email });
+  if (!res.ok) { toast('エラー: ' + (res.error || '失敗'), true); return; }
+  if (res.link) {
+    var copied = false;
+    if (navigator.clipboard) {
+      try { await navigator.clipboard.writeText(res.link); copied = true; } catch(e) {}
+    }
+    openModal('パスワードリセットリンク',
+      '<div style="margin-bottom:12px;font-size:13px;color:#374151"><b>'+escHtml(email)+'</b> のパスワードリセットリンクを生成しました。</div>'+
+      (copied ? '<div style="background:#f0fdf4;color:#059669;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;font-weight:600">✅ クリップボードにコピー済み</div>' : '')+
+      '<textarea readonly style="width:100%;height:80px;font-size:11px;font-family:monospace;border:1px solid #e5e7eb;border-radius:6px;padding:8px;resize:none;color:#374151">'+escHtml(res.link)+'</textarea>'+
+      '<div style="font-size:11px;color:#9ca3af;margin-top:6px">このリンクを本人に送ってください。リンクは1時間で無効になります。</div>',
+      '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>');
+  } else {
+    toast('リセットメールを送信しました');
+  }
 }
 
 function saveGasUrl() {
@@ -6297,7 +6462,105 @@ function downloadBackup() {
   toast('バックアップをダウンロードしました');
 }
 
-initApp();
+// ===================== AUTH =====================
+var currentUser = null;
+// オーナーメアド一覧（このリストにいればロール = owner）
+var OWNER_EMAILS = ['ryo.kasai@funrix.co.jp'];
+
+function isOwner() {
+  return currentUser && OWNER_EMAILS.indexOf(currentUser.email) !== -1;
+}
+
+async function startWithAuth() {
+  var res = await _sb.auth.getSession();
+  var session = res.data && res.data.session;
+  if (session) {
+    currentUser = session.user;
+    showMainApp();
+    initApp();
+  } else {
+    showLoginScreen();
+  }
+}
+
+function showLoginScreen() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('sidebar').style.display = 'none';
+  document.getElementById('main').style.display = 'none';
+}
+
+function showMainApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('sidebar').style.display = 'flex';
+  document.getElementById('main').style.display = 'flex';
+  renderSidebarUser();
+}
+
+function renderSidebarUser() {
+  if (!currentUser) return;
+  var email = currentUser.email || '';
+  var owner = isOwner();
+  var roleLabel = owner ? 'オーナー' : 'ユーザー';
+  var roleColor = owner ? '#f59e0b' : '#60a5fa';
+  var initial = email.charAt(0).toUpperCase();
+  document.getElementById('sidebar-user').innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px">' +
+    '<div style="width:30px;height:30px;border-radius:50%;background:#3b82f6;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0">' + escHtml(initial) + '</div>' +
+    '<div style="flex:1;min-width:0">' +
+    '<div style="font-size:11px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(email) + '</div>' +
+    '<span style="font-size:10px;background:' + roleColor + ';color:#fff;padding:1px 6px;border-radius:9px;font-weight:600">' + roleLabel + '</span>' +
+    '</div>' +
+    '<button onclick="signOut()" title="ログアウト" style="background:none;border:none;color:#64748b;font-size:17px;cursor:pointer;padding:2px;flex-shrink:0" onmouseover="this.style.color=\'#ef4444\'" onmouseout="this.style.color=\'#64748b\'">⏻</button>' +
+    '</div>';
+}
+
+async function doLogin() {
+  var email = document.getElementById('login-email').value.trim();
+  var password = document.getElementById('login-password').value;
+  var btn = document.getElementById('login-btn');
+  var errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (!email || !password) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; return; }
+  btn.disabled = true;
+  btn.textContent = 'ログイン中...';
+  var res = await _sb.auth.signInWithPassword({ email: email, password: password });
+  if (res.error) {
+    errEl.textContent = 'ログインに失敗しました。メアドまたはパスワードが正しくありません。';
+    btn.disabled = false;
+    btn.textContent = 'ログイン';
+    return;
+  }
+  currentUser = res.data.user;
+  showMainApp();
+  initApp();
+}
+
+async function signOut() {
+  if (!confirm('ログアウトしますか？')) return;
+  await _sb.auth.signOut();
+  currentUser = null;
+  location.reload();
+}
+
+function selectLoginService(svc) {
+  if (svc === 'funlink') {
+    document.getElementById('login-service-select').style.display = 'none';
+    document.getElementById('login-form').style.display = 'block';
+    setTimeout(function(){ document.getElementById('login-email').focus(); }, 100);
+  } else {
+    document.getElementById('login-service-select').style.display = 'none';
+    document.getElementById('login-coming-soon').style.display = 'block';
+  }
+}
+
+function backToServiceSelect() {
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('login-coming-soon').style.display = 'none';
+  document.getElementById('login-service-select').style.display = 'block';
+  document.getElementById('login-error').textContent = '';
+}
+
+startWithAuth();
 </script>
 </body>
 </html>
