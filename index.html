@@ -306,6 +306,8 @@ async function initAppFromSupabase() {
     _sb.from('cms_store').select('data').eq('id','client_reports').maybeSingle(),
   ]);
   if (casesRes.error) throw new Error('cases: ' + casesRes.error.message);
+  if (storeRes.error) throw new Error('store: ' + storeRes.error.message);
+  if (reviewRes.error) throw new Error('review: ' + reviewRes.error.message);
   if (casesRes.data && casesRes.data.data) {
     MASTER_CASES = casesRes.data.data.master || [];
     UNMATCHED_CASES = casesRes.data.data.unmatched || [];
@@ -475,20 +477,27 @@ var _lmThreadCache = {}; // fl -> msgs[]
 
 async function _loadLineSummaries() {
   if (_lmSummary) return _lmSummary;
-  const { data } = await _sb.from('line_messages')
-    .select('case_fl,status,created_at,sender')
-    .order('created_at', { ascending: false })
-    .limit(20000);
-  _lmSummary = {};
-  if (data) {
-    data.forEach(function(m) {
-      const fl = m.case_fl;
-      if (!_lmSummary[fl]) _lmSummary[fl] = { unread: 0, latestDate: '', hasClam: false };
-      const s = _lmSummary[fl];
-      if (!s.latestDate || m.created_at > s.latestDate) s.latestDate = m.created_at;
-      if (m.status === '未対応' && m.sender === '顧客') s.unread++;
-      if (m.status === 'クレーム') s.hasClam = true;
-    });
+  try {
+    const { data, error } = await _sb.from('line_messages')
+      .select('case_fl,status,created_at,sender')
+      .order('created_at', { ascending: false })
+      .limit(20000);
+    if (error) throw error;
+    _lmSummary = {};
+    if (data) {
+      data.forEach(function(m) {
+        if (!m.case_fl || !m.created_at) return;
+        const fl = m.case_fl;
+        if (!_lmSummary[fl]) _lmSummary[fl] = { unread: 0, latestDate: '', hasClam: false };
+        const s = _lmSummary[fl];
+        if (!s.latestDate || m.created_at > s.latestDate) s.latestDate = m.created_at;
+        if (m.status === '未対応' && m.sender === '顧客') s.unread++;
+        if (m.status === 'クレーム') s.hasClam = true;
+      });
+    }
+  } catch(e) {
+    console.error('LINE summaries load failed:', e);
+    _lmSummary = {};
   }
   return _lmSummary;
 }
@@ -2514,7 +2523,7 @@ function renderLineWebhook() {
     '<div style="background:#fef9c3;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;line-height:2">' +
     '⚠️ Channel Secret/TokenはSupabaseシークレットとして保存します。<br>' +
     '<b>下記コマンドをターミナルで一度だけ実行してください：</b>' +
-    '<pre style="background:#1e293b;color:#7dd3fc;padding:10px 12px;border-radius:6px;margin:8px 0 4px;font-size:11px;overflow-x:auto;white-space:pre">npx supabase secrets set LINE_CHANNEL_SECRET=あなたのSecret --project-ref xfumvuxahjferrapdywj\nnpx supabase secrets set LINE_CHANNEL_ACCESS_TOKEN=あなたのToken --project-ref xfumvuxahjferrapdywj\nnpx supabase functions deploy line-webhook --project-ref xfumvuxahjferrapdywj</pre>' +
+    '<pre style="background:#1e293b;color:#7dd3fc;padding:10px 12px;border-radius:6px;margin:8px 0 4px;font-size:11px;overflow-x:auto;white-space:pre">npx supabase secrets set LINE_CHANNEL_SECRET=あなたのSecret --project-ref xfumvuxahjferrapdywj\nnpx supabase secrets set LINE_CHANNEL_ACCESS_TOKEN=あなたのToken --project-ref xfumvuxahjferrapdywj\nnpx supabase functions deploy line-webhook --no-verify-jwt --project-ref xfumvuxahjferrapdywj</pre>' +
     'Supabaseダッシュボード → Settings → Vault からGUI設定も可能です</div>' +
     '<div style="font-size:12px;color:#374151;font-weight:600;margin-bottom:8px">参照用として保存（省略可）：</div>' +
     '<div class="form-row">' +
@@ -2532,7 +2541,7 @@ function renderLineWebhook() {
     '<li><a href="https://developers.line.biz/" target="_blank" style="color:#4F46E5">LINE Developers Console</a> → Messaging API チャネルを開く</li>' +
     '<li><b>Channel secret</b> をコピー → 上のコマンドの LINE_CHANNEL_SECRET に入力して実行</li>' +
     '<li><b>Channel access token（Long-lived）</b> をコピー → LINE_CHANNEL_ACCESS_TOKEN に入力して実行</li>' +
-    '<li><code style="background:#f3f4f6;padding:2px 6px;border-radius:3px">npx supabase functions deploy line-webhook --project-ref xfumvuxahjferrapdywj</code> を実行</li>' +
+    '<li><code style="background:#f3f4f6;padding:2px 6px;border-radius:3px">npx supabase functions deploy line-webhook <b>--no-verify-jwt</b> --project-ref xfumvuxahjferrapdywj</code> を実行<br><span style="font-size:11px;color:#6b7280">※ --no-verify-jwt が重要：LINEリクエストはJWT認証なしで受信するため</span></li>' +
     '<li>LINE Developers → Webhook settings → Webhook URL に上のURLを設定 → 「Webhookの利用」をオン</li>' +
     '<li>LINEテスト送信 または「⚡ 接続テスト」で動作確認 → ✅ で完了</li>' +
     '</ol></div></div>';
@@ -3591,10 +3600,13 @@ function openReviewTargetForm(fl) {
   }, 50);
 }
 function _rvUpdateTargetPreview() {
-  var cust  = parseFloat(document.getElementById('rt-cust').value)||0;
-  var req   = parseFloat(document.getElementById('rt-req').value)||50;
-  var acq   = parseFloat(document.getElementById('rt-acq').value)||10;
-  var man   = parseFloat(document.getElementById('rt-manual').value)||0;
+  var custEl=document.getElementById('rt-cust'), reqEl=document.getElementById('rt-req');
+  var acqEl=document.getElementById('rt-acq'), manEl=document.getElementById('rt-manual');
+  if(!custEl||!reqEl||!acqEl||!manEl) return;
+  var cust  = parseFloat(custEl.value)||0;
+  var req   = parseFloat(reqEl.value)||50;
+  var acq   = parseFloat(acqEl.value)||10;
+  var man   = parseFloat(manEl.value)||0;
   var auto  = Math.round(cust*(req/100)*(acq/100));
   var result= man||auto;
   var el=document.getElementById('rt-preview');
@@ -3760,11 +3772,17 @@ function removeCsStaff(idx) {
 }
 async function assignAllCsStaff(name) {
   if (!confirm(MASTER_CASES.length + '件すべてのCS担当者を「' + name + '」に設定します。よろしいですか？')) return;
-  MASTER_CASES.forEach(function(c){ c.cs_staff = name; });
-  await saveMasterCases();
-  toast(MASTER_CASES.length + '件を「' + name + '」に設定しました');
-  document.getElementById('modal-body').innerHTML = _buildCsStaffBody();
-  renderReviewModule();
+  try {
+    MASTER_CASES.forEach(function(c){ c.cs_staff = name; });
+    await saveMasterCases();
+    toast(MASTER_CASES.length + '件を「' + name + '」に設定しました');
+    var mb = document.getElementById('modal-body');
+    if (mb) mb.innerHTML = _buildCsStaffBody();
+    renderReviewModule();
+  } catch(e) {
+    console.error('assignAllCsStaff failed:', e);
+    toast('保存に失敗しました: ' + e.message, true);
+  }
 }
 
 // ── クチコミ未マッチ店舗 手動紐付けUI ──
@@ -4267,7 +4285,7 @@ function tvCalMonth(body,pEl){
     else html+='<div style="font-size:11px;font-weight:600;color:'+(isOther?'#C7D0DC':'#475467')+';margin-bottom:2px">'+date.getDate()+'</div>';
     var dt=allT.filter(function(t){return tvCalOnDate(t,date);});
     var dateStr=date.getFullYear()+'-'+(date.getMonth()<9?'0':'')+(date.getMonth()+1)+'-'+(date.getDate()<10?'0':'')+date.getDate();
-    var dm=mtgs.filter(function(m){return tvMeetingDate(m)&&tvMeetingDate(m).slice(0,10)===dateStr;});
+    var dm=mtgs.filter(function(m){var md=tvMeetingDate(m);return md&&md.slice(0,10)===dateStr;});
     var total=dt.length+dm.length; var shown=0;
     dt.slice(0,2).forEach(function(t){ shown++; var comp=st.find(function(c){return c.fl===t.fl;});var col=comp?comp.color:'#4F46E5'; html+='<div style="font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:'+col+'22;color:'+col+';border-left:2px solid '+col+';font-weight:500;cursor:pointer;line-height:1.3">'+escHtml(t.name)+'</div>'; });
     if(shown<3) dm.slice(0,3-shown).forEach(function(m){ var cc=MASTER_CASES.find(function(c){return c.fl===m.caseFL;}); html+='<div style="font-size:10px;padding:2px 4px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#F0FDF4;color:#15803D;border-left:2px solid #22C55E;font-weight:500;cursor:pointer;line-height:1.3">📅 '+escHtml(cc?cc.name:m.caseFL||'MTG')+'</div>'; });
@@ -4293,7 +4311,7 @@ function tvCalWeek(body,pEl){
   days.forEach(function(d,di){
     var isT=d.toDateString()===tday.toDateString(); var colT=allT.filter(function(t){return tvCalOnDate(t,d);});
     var ds=d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
-    var colM=mtgs.filter(function(m){return tvMeetingDate(m)&&tvMeetingDate(m).slice(0,10)===ds;});
+    var colM=mtgs.filter(function(m){var md=tvMeetingDate(m);return md&&md.slice(0,10)===ds;});
     html+='<div style="position:relative;border-right:1px solid #F2F4F7;height:'+(24*TV_HOUR_H)+'px;'+(isT?'background:rgba(79,70,229,.03)':'')+'">';
     colT.forEach(function(t,ti){ var comp=st.find(function(c){return c.fl===t.fl;});var col=comp?comp.color:'#4F46E5'; html+='<div style="position:absolute;top:'+(60+ti*58)+'px;height:48px;background:'+col+';left:'+(4+ti*4)+'%;right:4%;border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;color:#fff;cursor:pointer;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.15);z-index:2;line-height:1.3" title="'+escHtml(t.name)+'">'+escHtml(t.name)+'<div style="font-size:9px;opacity:.8">'+escHtml(t.assignee||'')+'</div></div>'; });
     colM.forEach(function(m,mi){ var cc=MASTER_CASES.find(function(c){return c.fl===m.caseFL;}); html+='<div style="position:absolute;top:'+(60+(colT.length+mi)*58)+'px;height:48px;background:#22C55E;left:4%;right:4%;border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;color:#fff;cursor:pointer;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.15);z-index:2;line-height:1.3" title="MTG: '+escHtml(cc?cc.name:m.caseFL||'')+'">📅 '+(cc?escHtml(cc.name):escHtml(m.caseFL||'MTG'))+'<div style="font-size:9px;opacity:.8">'+escHtml(m.attendees||'')+'</div></div>'; });
@@ -4309,7 +4327,7 @@ function tvCalDay(body,pEl){
   var tasks=tvGetTasks(); var st=tvStructure(tasks); var allT=[];st.forEach(function(c){c.stores.forEach(function(s){allT=allT.concat(s.tasks);});});
   var d=new Date(_tvCalYear,_tvCalMonth,_tvCalDay); var tday=new Date();tday.setHours(0,0,0,0); var isToday=d.toDateString()===tday.toDateString();
   var ds=d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
-  var dayMtgs=tvGetMeetings().filter(function(m){return tvMeetingDate(m)&&tvMeetingDate(m).slice(0,10)===ds;});
+  var dayMtgs=tvGetMeetings().filter(function(m){var md=tvMeetingDate(m);return md&&md.slice(0,10)===ds;});
   if(pEl) pEl.textContent=_tvCalYear+'年'+(_tvCalMonth+1)+'月'+_tvCalDay+'日('+TV_DOW[d.getDay()]+')';
   var dayT=allT.filter(function(t){return tvCalOnDate(t,d);});
   var html='<div style="padding:10px 14px;border-bottom:1px solid #E4E7EC;background:#FAFBFC;flex-shrink:0"><div style="font-size:18px;font-weight:800;color:'+(isToday?'#4F46E5':'#101828')+'">'+(_tvCalMonth+1)+'月'+_tvCalDay+'日 ('+TV_DOW[d.getDay()]+')</div><div style="font-size:12px;color:#98A2B3;margin-top:2px">タスク '+dayT.length+'件 / MTG '+dayMtgs.length+'件</div></div>'+
@@ -4413,7 +4431,7 @@ function tvRefreshSubList(taskId){
   }).join('');
 }
 function exportICS(){
-  var s=getStore();var tasks=s.tasks.filter(function(t){return t.deadline&&t.status!=='完了';});
+  var s=getStore();var tasks=(s.tasks||[]).filter(function(t){return t.deadline&&t.title&&t.status!=='完了';});
   if(!tasks.length){toast('エクスポートするタスクなし','info');return;}
   var ics="BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FunLink CMS//JA\r\n";
   tasks.forEach(function(t){var d=t.deadline.replace(/-/g,'');ics+="BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:"+d+"\r\nDTEND;VALUE=DATE:"+d+"\r\nSUMMARY:"+t.title.replace(/[,;\\]/g,'\\$&')+"\r\nEND:VEVENT\r\n";});
@@ -6738,12 +6756,12 @@ function renderSettings() {
           ' でAPIキーを取得してください。'+
         '</div>'+
         '<div style="display:flex;gap:8px;align-items:stretch">'+
-          '<input type="password" id="gemini-key-input" value="'+escHtml(localStorage.getItem(\'funlink_gemini_key\')||\'\')+'"'+
+          '<input type="password" id="gemini-key-input" value="'+escHtml(localStorage.getItem('funlink_gemini_key')||'')+'"'+
             ' placeholder="AIzaSy..." style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;font-family:monospace">'+
           '<button class="btn btn-primary" onclick="saveGeminiKey()">保存</button>'+
           '<button class="btn btn-secondary" onclick="testGeminiKey()">テスト</button>'+
         '</div>'+
-        (localStorage.getItem(\'funlink_gemini_key\')
+        (localStorage.getItem('funlink_gemini_key')
           ? '<div style="margin-top:8px;font-size:12px;color:#059669;font-weight:600">✅ APIキー設定済み</div>'
           : '<div style="margin-top:8px;font-size:12px;color:#9ca3af">未設定 — LINE対応でAI返信生成が使えません</div>')+
       '</div>'+
