@@ -474,6 +474,7 @@ var REVIEW_UNMATCHED = [
 // LINE messages Supabase cache
 var _lmSummary = null; // fl -> {unread, latestDate, hasClam}
 var _lmThreadCache = {}; // fl -> msgs[]
+var _lineRealtimeChannel = null;
 
 async function _loadLineSummaries() {
   if (_lmSummary) return _lmSummary;
@@ -516,6 +517,34 @@ async function _loadLineThread(fl) {
 function _invalidateLmCache(fl) {
   _lmSummary = null;
   if (fl) delete _lmThreadCache[fl];
+}
+
+function _subscribeLineRealtime() {
+  if (_lineRealtimeChannel) return;
+  _lineRealtimeChannel = _sb.channel('line_msg_realtime')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'line_messages' }, function(payload) {
+      var msg = payload.new;
+      if (!msg || !msg.case_fl) return;
+      _invalidateLmCache(msg.case_fl);
+      // 開いているスレッドが対象FLなら再描画
+      if (state.line.selectedFL === msg.case_fl) {
+        showLineThread(msg.case_fl);
+      }
+      // 案件リストを更新
+      renderLineMessages();
+      // 顧客からのメッセージならトースト通知
+      if (msg.sender === '顧客') {
+        toast('📩 新着: ' + (msg.sender_name || msg.case_fl));
+      }
+    })
+    .subscribe();
+}
+
+function _unsubscribeLineRealtime() {
+  if (_lineRealtimeChannel) {
+    _sb.removeChannel(_lineRealtimeChannel);
+    _lineRealtimeChannel = null;
+  }
 }
 
 // ===================== STORAGE =====================
@@ -646,11 +675,45 @@ document.querySelectorAll('.nav-item').forEach(function(el){
 });
 
 var MODULE_TITLES = {dashboard:'ダッシュボード', master:'案件マスタ', contract:'契約管理', line:'LINE対応', review:'クチコミ管理', meeting:'MTG・議事録', task:'タスク管理', proposal:'提案管理', support:'サポート履歴', payment:'支払い管理', learning:'MEO学習',matching:'データ付け合せ', settings:'設定'};
+
+// ロール別アクセス制御（admin=全許可 / operator=通常操作 / viewer=閲覧のみ）
+var MODULE_ROLE_REQUIRED = {
+  settings: 'admin',    // 設定: 管理者のみ
+  matching: 'admin',    // データ付け合せ: 管理者のみ
+  payment: 'operator',  // 支払い管理: 運用担当以上
+  contract: 'operator', // 契約管理: 運用担当以上
+  proposal: 'operator', // 提案管理: 運用担当以上
+  line: 'operator',     // LINE対応: 運用担当以上
+  task: 'operator',     // タスク管理: 運用担当以上
+  meeting: 'operator',  // MTG・議事録: 運用担当以上
+  support: 'operator'   // サポート履歴: 運用担当以上
+  // dashboard / master / review / learning: viewer以上（制限なし）
+};
+var ROLE_LEVEL = { admin: 3, operator: 2, viewer: 1 };
+
+function canAccessModule(mod) {
+  var required = MODULE_ROLE_REQUIRED[mod];
+  if (!required) return true;
+  var role = getUserRole();
+  return (ROLE_LEVEL[role] || 0) >= (ROLE_LEVEL[required] || 0);
+}
+
 function loadModule(mod) {
+  if (mod !== 'line') _unsubscribeLineRealtime();
   document.getElementById('page-title').textContent = MODULE_TITLES[mod] || mod;
   var c = document.getElementById('content');
   c.style.padding = '';
   c.style.overflowY = '';
+  if (!canAccessModule(mod)) {
+    var roleName = ROLE_LABELS[MODULE_ROLE_REQUIRED[mod]] || MODULE_ROLE_REQUIRED[mod];
+    c.innerHTML = '<div style="text-align:center;padding:60px 20px;color:#6b7280">' +
+      '<div style="font-size:48px;margin-bottom:16px">🔒</div>' +
+      '<div style="font-size:16px;font-weight:600;color:#374151;margin-bottom:8px">アクセス制限</div>' +
+      '<div style="font-size:13px">このページは「'+roleName+'」以上の権限が必要です。</div>' +
+      '<div style="font-size:12px;margin-top:8px;color:#9ca3af">権限の変更は管理者にお問い合わせください。</div>' +
+      '</div>';
+    return;
+  }
   if (modules[mod]) modules[mod]();
 }
 
@@ -670,23 +733,60 @@ var state = {
 };
 var modules = {};
 
+// ── チャーンスコア算出（score = 接触空白日数×0.5 + 未解決タスク数×10 + クチコミ停止月数×15）
+function calcChurnScore(fl, todayStr, store) {
+  var score = 0;
+  var reasons = [];
+  // ① 接触空白日数（最終MTG or サポート日からの経過日数）
+  var mtgs = (store.meetings||[]).filter(function(m){ return m.caseFL===fl && (m.date||m.scheduledDate); });
+  var supports = (store.supportLogs||[]).filter(function(l){ return l.caseFL===fl && l.date; });
+  var lastDates = mtgs.map(function(m){ return m.date||m.scheduledDate; }).concat(supports.map(function(l){ return l.date; }));
+  var lastContact = lastDates.length ? lastDates.reduce(function(a,b){ return a>b?a:b; }) : null;
+  if (lastContact) {
+    var daysAgo = Math.floor((new Date(todayStr)-new Date(lastContact))/(1000*86400));
+    score += daysAgo * 0.5;
+    if (daysAgo > 30) reasons.push('接触' + daysAgo + '日空白');
+  } else {
+    score += 60; // 接触記録なし
+    reasons.push('接触記録なし');
+  }
+  // ② 未解決タスク数
+  var tasks = ((store.taskv2&&store.taskv2.tasks)||store.tasks||[]).filter(function(t){ return t.fl===fl && t.status!=='done' && t.status!=='完了'; });
+  score += tasks.length * 10;
+  if (tasks.length >= 3) reasons.push('未解決タスク' + tasks.length + '件');
+  // ③ クチコミ停止月数（reviewKpiから最終月を取得）
+  var rkpi = (store.reviewKpi||{});
+  var byFl = (rkpi.by_fl||{})[fl];
+  if (byFl && byFl.last_review_date) {
+    var lastReview = byFl.last_review_date;
+    var monthsAgo = (new Date(todayStr).getFullYear()*12+new Date(todayStr).getMonth()) -
+                    (new Date(lastReview).getFullYear()*12+new Date(lastReview).getMonth());
+    score += monthsAgo * 15;
+    if (monthsAgo >= 2) reasons.push('クチコミ' + monthsAgo + 'ヶ月停止');
+  }
+  return { score: Math.round(score), reasons: reasons };
+}
+
 // DASHBOARD
 modules.dashboard = function() {
   updateSidebarBadges();
   var s = getStore();
   var bd = getBillingData();
+  var todayStr = today();
   var contracted = MASTER_CASES.filter(function(c){ return c.status === '契約中'; });
-  var ym = today().slice(0,7).replace('-','/');
+  var ym = todayStr.slice(0,7).replace('-','/');
   var invoices = bd.invoices||[];
-  // 請求ロボデータがあればそちらを優先、なければMASTER_CASESのfeeを使用
+  // MRR: 請求ロボデータがあればそちらを優先、なければMASTER_CASESのfeeを使用
   var mrr = invoices.length ?
     invoices.filter(function(x){return x.period_start&&x.period_start.slice(0,7)===ym;}).reduce(function(a,x){return a+x.amount;},0) :
     contracted.reduce(function(a,c){ return a + (c.fee||0); }, 0);
   var unpaidAll = invoices.filter(function(x){return x.status==='未収'||x.status==='未処理';});
   var unpaidAmt = unpaidAll.reduce(function(a,x){return a+x.amount;},0);
-  var openTasks = (s.taskv2&&s.taskv2.tasks ? s.taskv2.tasks : s.tasks).filter(function(t){ return t.status !== 'done' && t.status !== '完了'; }).length;
-  var recentTasks = s.tasks.slice().sort(function(a,b){ return (b.deadline||'').localeCompare(a.deadline||''); }).slice(0,6);
-  var recentSupport = s.supportLogs.slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }).slice(0,6);
+  var allTasks = (s.taskv2&&s.taskv2.tasks ? s.taskv2.tasks : s.tasks)||[];
+  var openTasks = allTasks.filter(function(t){ return t.status !== 'done' && t.status !== '完了'; }).length;
+  var overdueTasks = allTasks.filter(function(t){ return t.status!=='done'&&t.status!=='完了'&&t.due_date&&t.due_date<todayStr; });
+  var recentTasks = (s.tasks||[]).slice().sort(function(a,b){ return (b.deadline||'').localeCompare(a.deadline||''); }).slice(0,6);
+  var recentSupport = (s.supportLogs||[]).slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }).slice(0,6);
   // 今月の請求書データ
   var thisMonth = invoices.filter(function(x){return x.period_start&&x.period_start.slice(0,7)===ym;});
   var paidAmt = thisMonth.filter(function(x){return x.status==='完了';}).reduce(function(a,x){return a+x.amount;},0);
@@ -708,33 +808,69 @@ modules.dashboard = function() {
       else if (_lmSummary[fl].unread > 0) lineUnread++;
     });
   }
+  // チャーンスコア上位（危険ライン：スコア50以上を要注意として表示、最大8件）
+  var churnList = contracted.map(function(c){
+    var r = calcChurnScore(c.fl, todayStr, s);
+    return { fl:c.fl, name:c.name, score:r.score, reasons:r.reasons };
+  }).filter(function(x){ return x.score >= 50; })
+    .sort(function(a,b){ return b.score-a.score; }).slice(0,8);
+
+  // 要対応アラート生成
+  var alerts = [];
+  if (lineClam > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fef2f2;border-left:3px solid #ef4444;border-radius:0 6px 6px 0;cursor:pointer" onclick="state.line.listFilter=\'clam\';loadModule(\'line\')"><span style="font-size:16px">🚨</span><div><div style="font-weight:700;font-size:13px;color:#991b1b">クレーム '+lineClam+' 件 — 至急対応が必要</div><div style="font-size:11px;color:#ef4444">LINE対応 → クレームタブで確認</div></div></div>');
+  if (overdueTasks.length > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'task\')"><span style="font-size:16px">⏰</span><div><div style="font-weight:700;font-size:13px;color:#92400e">期限切れタスク '+overdueTasks.length+' 件</div><div style="font-size:11px;color:#d97706">タスク管理で確認・更新してください</div></div></div>');
+  if (unpaidAll.length > 0 && invoices.length) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'payment\')"><span style="font-size:16px">💴</span><div><div style="font-weight:700;font-size:13px;color:#92400e">未収 '+unpaidAll.length+' 件 — '+fmtMoney(unpaidAmt)+'</div><div style="font-size:11px;color:#d97706">支払い管理で確認してください</div></div></div>');
+  if (lineUnread > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f5f3ff;border-left:3px solid #7c3aed;border-radius:0 6px 6px 0;cursor:pointer" onclick="state.line.listFilter=\'unread\';loadModule(\'line\')"><span style="font-size:16px">💬</span><div><div style="font-weight:700;font-size:13px;color:#5b21b6">LINE未返信 '+lineUnread+' 件</div><div style="font-size:11px;color:#7c3aed">LINE対応 → 未読タブで確認</div></div></div>');
+
+  var alertHtml = alerts.length ?
+    '<div class="card" style="margin-bottom:16px;border:1px solid #fecaca"><div class="card-title" style="color:#991b1b">⚠️ 要対応アラート（' + alerts.length + '件） <span style="font-size:11px;font-weight:400;color:#9ca3af">— 「静かな画面 = 問題なし」。このカードが空なら全て順調です。</span></div><div style="display:flex;flex-direction:column;gap:8px">' + alerts.join('') + '</div></div>' :
+    '<div class="card" style="margin-bottom:16px;border:1px solid #d1fae5"><div style="display:flex;align-items:center;gap:10px;padding:4px 0"><span style="font-size:20px">✅</span><div style="font-weight:700;color:#065f46">要対応アラートなし — 全て順調です</div></div></div>';
+
+  var churnRows = churnList.map(function(x){
+    var scoreColor = x.score>=100?'#ef4444':x.score>=70?'#f59e0b':'#6b7280';
+    return '<tr onclick="loadModule(\'master\');state.master.selectedFL=\''+escHtml(x.fl)+'\';renderMasterDetail(\''+escHtml(x.fl)+'\')" style="cursor:pointer">' +
+      '<td style="font-weight:600;color:#4F46E5;font-size:12px">'+escHtml(x.fl)+'</td>' +
+      '<td style="font-size:12px">'+escHtml(x.name)+'</td>' +
+      '<td style="text-align:right;font-weight:700;color:'+scoreColor+';font-variant-numeric:tabular-nums">'+x.score+'</td>' +
+      '<td style="font-size:11px;color:#9ca3af">'+x.reasons.slice(0,2).map(function(r){return escHtml(r);}).join('・')+'</td>' +
+      '</tr>';
+  }).join('');
+
   document.getElementById('content').innerHTML =
+    alertHtml +
     '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">' +
     '<div class="kpi-card"><div class="kpi-label">契約中件数</div><div class="kpi-value">' + contracted.length + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">全' + MASTER_CASES.length + '社中</div></div>' +
-    '<div class="kpi-card green"><div class="kpi-label">MRR'+(invoices.length?' (請求ロボ)':' (概算)')+'</div><div class="kpi-value" style="font-size:22px">' + fmtMoney(mrr) + '</div><div class="kpi-sub">'+ym+'</div></div>' +
+    '<div class="kpi-card '+(invoices.length?'green':'yellow')+'"><div class="kpi-label">MRR <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;'+(invoices.length?'background:#d1fae5;color:#065f46':'background:#fef3c7;color:#92400e')+'">'+(invoices.length?'確定':'概算')+'</span></div><div class="kpi-value" style="font-size:22px">' + fmtMoney(mrr) + '</div><div class="kpi-sub">'+ym+(invoices.length?'':" — 請求ロボ未取込")+'</div></div>' +
     '<div class="kpi-card red"><div class="kpi-label">未収合計</div><div class="kpi-value" style="font-size:20px">'+(invoices.length?fmtMoney(unpaidAmt):'-')+'</div><div class="kpi-sub">'+(invoices.length?unpaidAll.length+'件':'請求ロボ未取込')+'</div></div>' +
-    '<div class="kpi-card yellow"><div class="kpi-label">未完了タスク数</div><div class="kpi-value">' + openTasks + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">全担当者合計</div></div>' +
+    '<div class="kpi-card yellow"><div class="kpi-label">未完了タスク数</div><div class="kpi-value">' + openTasks + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">'+(overdueTasks.length?'期限切れ'+overdueTasks.length+'件含む':'全担当者合計')+'</div></div>' +
     '<div class="kpi-card purple" style="cursor:pointer" onclick="state.line.listFilter=\'unread\';loadModule(\'line\')">' +
     '<div class="kpi-label">LINE未対応</div>' +
     '<div class="kpi-value" id="kpi-line-val">' + (_lmSummary ? lineUnread+lineClam : '…') + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
     '<div class="kpi-sub" id="kpi-line-sub">' + (_lmSummary ? (lineClam?'クレーム'+lineClam+'件含む':'対応待ち') : '読み込み中...') + '</div></div>' +
     '</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">' +
+    // チャーンスコア
+    '<div class="card"><div class="card-title">解約リスク — チャーンスコア上位 <span style="font-size:11px;font-weight:400;color:#9ca3af">（スコア = 接触空白×0.5 + 未タスク×10 + クチコミ停止月×15）</span></div>' +
+    (churnRows ? '<div class="table-wrap"><table><thead><tr><th>FL</th><th>会社名</th><th style="text-align:right">スコア</th><th>主な要因</th></tr></thead><tbody>' + churnRows + '</tbody></table></div><div style="font-size:11px;color:#9ca3af;margin-top:8px">⚠️スコア50以上を表示。クリックで詳細へ。</div>' :
+    '<div class="empty-state"><div class="icon">🎯</div><p>スコア50以上の案件なし — 接触状況は良好です</p></div>') +
+    '</div>' +
+    // タスク
     '<div class="card"><div class="card-title">最近のタスク</div>' +
     (taskRows ? '<div class="table-wrap"><table><thead><tr><th>タイトル</th><th>期限</th><th>状態</th></tr></thead><tbody>' + taskRows + '</tbody></table></div>' : '<div class="empty-state"><div class="icon">✅</div><p>タスクなし</p></div>') +
     '</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">' +
     '<div class="card"><div class="card-title">未収 TOP5 <button class="btn btn-sm btn-secondary" onclick="loadModule(\'payment\');state.payment.tab=1" style="float:right;font-size:11px">一覧へ →</button></div>' +
     (unpaidRows ? '<div class="table-wrap"><table><thead><tr><th>FL</th><th>会社名</th><th style="text-align:right">金額</th><th>期限</th></tr></thead><tbody>' + unpaidRows + '</tbody></table></div>' : '<div class="empty-state"><div class="icon">✅</div><p>'+(invoices.length?'未収なし':'請求ロボCSVを取込むと表示されます')+'</p></div>') +
-    '</div></div>' +
-    '<div class="card" style="margin-top:16px"><div class="card-title">今月の支払い状況（'+ym+'）'+(invoices.length?'':'<span style="font-size:11px;color:#9ca3af;font-weight:400"> ※請求ロボCSV未取込</span>')+'</div>' +
-    '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">' +
+    '</div>' +
+    '<div class="card"><div class="card-title">今月の支払い状況（'+ym+'）'+(invoices.length?'':'<span style="font-size:11px;color:#9ca3af;font-weight:400"> ※請求ロボCSV未取込</span>')+'</div>' +
+    '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">' +
     '<div><div class="kpi-label">請求件数</div><div style="font-size:22px;font-weight:700">' + thisMonth.length + '</div></div>' +
     '<div><div class="kpi-label">入金済み</div><div style="font-size:22px;font-weight:700;color:#10b981">' + paidBills + '</div></div>' +
     '<div><div class="kpi-label">未入金</div><div style="font-size:22px;font-weight:700;color:#ef4444">' + (thisMonth.length-paidBills) + '</div></div>' +
-    '<div style="flex:1;min-width:180px;max-width:280px"><div class="kpi-label">入金率</div><div class="progress-bar" style="margin-top:6px"><div class="progress-fill" style="width:' + pct + '%"></div></div><div style="font-size:12px;color:#6b7280;margin-top:4px">' + pct + '%</div></div>' +
-    '<div><div class="kpi-label">入金合計</div><div style="font-size:18px;font-weight:700;color:#10b981">' + fmtMoney(paidAmt) + '</div></div>' +
-    '<div><div class="kpi-label">未入金合計</div><div style="font-size:18px;font-weight:700;color:#ef4444">' + fmtMoney(totalAmt-paidAmt) + '</div></div>' +
+    '<div style="flex:1;min-width:140px"><div class="kpi-label">入金率</div><div class="progress-bar" style="margin-top:6px"><div class="progress-fill" style="width:' + pct + '%"></div></div><div style="font-size:12px;color:#6b7280;margin-top:4px">' + pct + '%</div></div>' +
     '</div></div>' +
+    '</div>' +
     (recentSupport.length?'<div class="card" style="margin-top:16px"><div class="card-title">最近のサポート履歴</div><div class="table-wrap"><table><thead><tr><th>案件</th><th>日付</th><th>分類</th></tr></thead><tbody>' + supportRows + '</tbody></table></div></div>':'');
 
   // LINE未対応件数を非同期で更新（キャッシュ未取得時）
@@ -749,6 +885,7 @@ modules.dashboard = function() {
       var sub = document.getElementById('kpi-line-sub');
       if (v) v.innerHTML = (ur+cl) + '<span style="font-size:14px;color:#6b7280"> 件</span>';
       if (sub) sub.textContent = cl ? 'クレーム'+cl+'件含む' : '対応待ち';
+      updateSidebarBadges(); // LINEバッジをサイドナビにも反映
     });
   }
 };
@@ -907,7 +1044,7 @@ function renderMasterDetail(fl) {
       '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #f3f4f6"><div class="card-title" style="margin:0">企業情報</div><button class="btn btn-secondary btn-sm" onclick="openCaseEditForm(\'' + escHtml(fl) + '\')">✏️ 編集</button></div><div class="info-grid">' +
       '<span class="key">FL番号</span><span class="val" style="font-weight:700;color:#3b82f6">' + escHtml(c.fl) + '</span>' +
       '<span class="key">会社名</span><span class="val" style="font-weight:600">' + escHtml(c.name) + '</span>' +
-      '<span class="key">ステータス</span><span class="val">' + statusBadge(c.status) + '</span>' +
+      '<span class="key">ステータス</span><span class="val">' + statusBadge(c.status) + (c.exit_reason?'<span style="margin-left:8px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:8px;background:#fef2f2;color:#991b1b">'+escHtml(c.exit_reason)+'</span>':'') + '</span>' +
       '<span class="key">担当者</span><span class="val">' + escHtml(c.ccontact||'-') + '</span>' +
       '<span class="key">メール</span><span class="val">' + escHtml(c.cemail||'-') + '</span>' +
       '<span class="key">電話</span><span class="val">' + escHtml(c.ctel||'-') + '</span>' +
@@ -1078,10 +1215,20 @@ function openCaseEditForm(fl) {
   openModal('案件編集 — ' + fl,
     '<div class="form-row">' +
     '<div class="form-group"><label>会社名</label><input type="text" id="ce-name" value="' + escHtml(c.name||'') + '"></div>' +
-    '<div class="form-group"><label>ステータス</label><select id="ce-status">' +
+    '<div class="form-group"><label>ステータス</label><select id="ce-status" onchange="toggleExitReason(this.value)">' +
     '<option value="契約中"' + (c.status==='契約中'?' selected':'') + '>契約中</option>' +
     '<option value="契約終了"' + (c.status==='契約終了'?' selected':'') + '>契約終了</option>' +
     '</select></div></div>' +
+    '<div class="form-row" id="exit-reason-row" style="'+(c.status==='契約終了'?'':'display:none')+'">' +
+    '<div class="form-group"><label>解約理由 <span style="color:#ef4444">*</span></label>' +
+    '<select id="ce-exit-reason">' +
+    '<option value="">-- 選択してください --</option>' +
+    '<option value="クレーム"'+(c.exit_reason==='クレーム'?' selected':'')+'>クレーム（サービス・対応への不満）</option>' +
+    '<option value="価格"'+(c.exit_reason==='価格'?' selected':'')+'>価格（費用対効果への疑問）</option>' +
+    '<option value="競合"'+(c.exit_reason==='競合'?' selected':'')+'>競合（他社サービスへの乗り換え）</option>' +
+    '<option value="放置"'+(c.exit_reason==='放置'?' selected':'')+'>放置（接触途絶・自然消滅）</option>' +
+    '</select></div>' +
+    '</div>' +
     '<div class="form-row">' +
     '<div class="form-group"><label>月額（円）</label><input type="number" id="ce-fee" value="' + (c.fee||'') + '"></div>' +
     '<div class="form-group"><label>開始日</label><input type="date" id="ce-start" value="' + escHtml(c.start||'') + '"></div></div>' +
@@ -1103,11 +1250,23 @@ function openCaseEditForm(fl) {
   );
 }
 
+function toggleExitReason(val){
+  var row=document.getElementById('exit-reason-row');
+  if(row) row.style.display=val==='契約終了'?'':'none';
+}
 async function saveCaseEdit(fl) {
   var c = MASTER_CASES.find(function(x){ return x.fl === fl; });
   if (!c) return;
+  var newStatus = document.getElementById('ce-status').value;
+  if(newStatus==='契約終了'){
+    var er=document.getElementById('ce-exit-reason').value;
+    if(!er){ toast('解約理由を選択してください', true); return; }
+    c.exit_reason = er;
+  } else {
+    c.exit_reason = '';
+  }
   c.name     = document.getElementById('ce-name').value.trim();
-  c.status   = document.getElementById('ce-status').value;
+  c.status   = newStatus;
   c.fee      = parseInt(document.getElementById('ce-fee').value, 10) || 0;
   c.start    = document.getElementById('ce-start').value;
   c.cs_staff = document.getElementById('ce-cs-staff').value.trim();
@@ -2249,7 +2408,7 @@ function unlinkStore(fl) {
 // ===================== LINE MODULE =====================
 modules.line = function() {
   var tab = state.line.tab || 0;
-  var tabNames = ['メッセージ管理','Webhook設定','自動返信ログ','LINE ID紐付け'];
+  var tabNames = ['メッセージ管理','Webhook設定','自動返信ログ','LINE ID紐付け','📊 月次レポート'];
   var tabsHtml = tabNames.map(function(l,i){
     return '<div class="tab '+(i===tab?'active':'')+'" onclick="state.line.tab='+i+';modules.line()">'+l+'</div>';
   }).join('');
@@ -2257,10 +2416,12 @@ modules.line = function() {
   if (tab===0) renderLineMessages();
   else if (tab===1) renderLineWebhook();
   else if (tab===2) renderLineAutoLogs();
-  else renderLineIdMapping();
+  else if (tab===3) renderLineIdMapping();
+  else renderLineMonthlyReport();
 };
 
 async function renderLineMessages() {
+  _subscribeLineRealtime();
   document.getElementById('line-body').innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div>';
   const summary = await _loadLineSummaries();
   var casesWithLatest = MASTER_CASES.map(function(c){
@@ -2300,6 +2461,7 @@ async function renderLineMessages() {
     '<button class="btn btn-sm '+(lf==='all'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'all\';renderLineMessages()">全て</button>' +
     '<button class="btn btn-sm '+(lf==='unread'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'unread\';renderLineMessages()">未対応 <span style="background:'+(lf==='unread'?'rgba(255,255,255,.3)':'#fee2e2')+';color:'+(lf==='unread'?'#fff':'#991b1b')+';border-radius:8px;padding:0 5px">'+totalUnread+'</span></button>' +
     '<button class="btn btn-sm '+(lf==='clam'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'clam\';renderLineMessages()">クレーム <span style="background:'+(lf==='clam'?'rgba(255,255,255,.3)':'#fee2e2')+';color:'+(lf==='clam'?'#fff':'#991b1b')+';border-radius:8px;padding:0 5px">'+totalClam+'</span></button>' +
+    '<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="showLineCsvImport()">📥 CSV取込</button>' +
     '</div>';
 
   document.getElementById('line-body').innerHTML =
@@ -2901,6 +3063,165 @@ function _rvBar(pct, minW) {
     '</div>' +
     '<span style="font-size:11px;font-weight:600;color:' + color + ';min-width:32px">' + pct + '%</span>' +
   '</div>';
+}
+
+// ===================== LINE 月次レポート手動送信 =====================
+var MONTHLY_REPORT_URL = 'https://xfumvuxahjferrapdywj.supabase.co/functions/v1/monthly-report';
+
+// 1件分のメッセージ文面をフロントエンドで組み立て（プレビュー用）
+function buildMonthlyReportMsg(fl) {
+  var c = MASTER_CASES.find(function(x){ return x.fl === fl; });
+  if (!c) return '（案件が見つかりません）';
+  var storeName = (c.stores && c.stores[0]) ? c.stores[0].sname : c.name;
+  var kpi = (_reviewKpi && _reviewKpi.by_fl && _reviewKpi.by_fl[fl]) || {};
+  var total = kpi.total || 0;
+  var prevTotal = kpi.prev_total || 0;
+  var rating = kpi.rating || 0;
+  var prevRating = kpi.prev_rating || 0;
+  var unresponded = kpi.unresponded || 0;
+  var lastDate = kpi.last_review_date || '未記録';
+  var now = new Date();
+  var ym = (new Date(now.getFullYear(), now.getMonth()-1, 1));
+  var ymStr = ym.getFullYear() + '-' + String(ym.getMonth()+1).padStart(2,'0');
+
+  function dlta(a,b){ var d=a-b; return d>0?'▲'+d:d<0?'▼'+Math.abs(d):'±0'; }
+  return [
+    '【'+ymStr.replace('-','年')+'月 月次クチコミレポート】',
+    storeName+' さんの先月の実績をお届けします。',
+    '',
+    '📊 クチコミ総件数: '+total.toLocaleString()+' 件（前月比 '+dlta(total,prevTotal)+'）',
+    '⭐ 平均評価: '+(rating>0?rating.toFixed(1):'--')+' / 5.0（前月比 '+
+      dlta(Math.round(rating*10),Math.round(prevRating*10)).replace('▲','+').replace('▼','-')+'）',
+    unresponded>0
+      ? '💬 未返信クチコミ: '+unresponded+' 件（早めの返信をおすすめします）'
+      : '💬 未返信クチコミ: なし ✅',
+    '📅 最新クチコミ日: '+lastDate,
+    '',
+    '引き続きFunrixサービスをよろしくお願いします。',
+    'ご質問はこちらのLINEにてお気軽にどうぞ！'
+  ].join('\n');
+}
+
+function previewMonthlyReport(fl) {
+  var c = MASTER_CASES.find(function(x){ return x.fl===fl; });
+  var name = c ? c.name : fl;
+  var msg = buildMonthlyReportMsg(fl);
+  openModal('📱 送信プレビュー — '+escHtml(name),
+    '<div style="background:#f0f4f8;border-radius:12px;padding:16px 18px;font-size:13px;line-height:1.8;white-space:pre-wrap;font-family:sans-serif;color:#1a1a2e;max-height:60vh;overflow-y:auto">'+escHtml(msg)+'</div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>' +
+    '<button class="btn btn-primary" style="background:#06c755" onclick="closeModal();sendMonthlyReportToFl(\''+escHtml(fl)+'\')">この内容で送信</button>'
+  );
+}
+
+async function sendMonthlyReportToFl(fl) {
+  var c = MASTER_CASES.find(function(x){ return x.fl===fl; });
+  var name = c ? c.name : fl;
+  var res = await _sb.auth.getSession();
+  var token = res.data && res.data.session ? res.data.session.access_token : '';
+  var el = document.getElementById('mr-row-'+fl);
+  if (el) el.innerHTML = '<span style="color:#6b7280;font-size:12px">⏳ 送信中...</span>';
+  try {
+    var r = await fetch(MONTHLY_REPORT_URL, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer '+token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fl: fl })
+    });
+    var data = await r.json();
+    var result = data.results && data.results[0];
+    if (result && result.status === 'sent') {
+      if (el) el.innerHTML = '<span style="color:#16a34a;font-size:12px">✅ 送信済み</span>';
+      toast(name+' にLINEを送信しました');
+    } else if (result && result.status === 'skip') {
+      if (el) el.innerHTML = '<span style="color:#f59e0b;font-size:12px">⚠️ LINE未連携</span>';
+      toast(name+' はLINE未連携です', true);
+    } else {
+      if (el) el.innerHTML = '<span style="color:#ef4444;font-size:12px">❌ 送信失敗</span>';
+      toast('送信失敗: '+(data.error||result&&result.reason||'不明エラー'), true);
+    }
+  } catch(e) {
+    if (el) el.innerHTML = '<span style="color:#ef4444;font-size:12px">❌ エラー</span>';
+    toast('通信エラー: '+e.message, true);
+  }
+}
+
+async function sendMonthlyReportBulk(fls) {
+  if (!fls || !fls.length) { toast('送信対象がいません', true); return; }
+  if (!confirm(fls.length+'件のLINE連携済み顧客にレポートを送信します。よろしいですか？')) return;
+  var res = await _sb.auth.getSession();
+  var token = res.data && res.data.session ? res.data.session.access_token : '';
+  var btn = document.getElementById('mr-bulk-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 送信中...'; }
+  try {
+    var r = await fetch(MONTHLY_REPORT_URL, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer '+token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fls: fls })
+    });
+    var data = await r.json();
+    if (data.ok) {
+      toast('一括送信完了: 成功'+data.sent+'件 / 失敗'+data.failed+'件 / 未連携'+data.skipped+'件');
+      renderLineMonthlyReport(); // 画面を再描画
+    } else {
+      toast('送信エラー: '+(data.error||'不明'), true);
+      if (btn) { btn.disabled = false; btn.textContent = '📤 一括送信（LINE連携済み）'; }
+    }
+  } catch(e) {
+    toast('通信エラー: '+e.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = '📤 一括送信（LINE連携済み）'; }
+  }
+}
+
+async function renderLineMonthlyReport() {
+  document.getElementById('line-body').innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div>';
+  var { data: lineMapRows } = await _sb.from('line_user_fl_map').select('fl_code, line_user_id, display_name');
+  var lineMap = {};
+  (lineMapRows||[]).forEach(function(r){ if(r.fl_code) lineMap[r.fl_code] = r; });
+
+  var contracted = MASTER_CASES.filter(function(c){ return c.status==='契約中'; });
+  var linkedFls = contracted.filter(function(c){ return !!lineMap[c.fl]; }).map(function(c){ return c.fl; });
+
+  var rows = contracted.map(function(c){
+    var linked = !!lineMap[c.fl];
+    var kpi = (_reviewKpi&&_reviewKpi.by_fl&&_reviewKpi.by_fl[c.fl])||{};
+    var total = kpi.total||0;
+    var rating = kpi.rating||0;
+    var unresponded = kpi.unresponded||0;
+    var lineStatus = linked
+      ? '<span style="background:#dcfce7;color:#16a34a;font-size:11px;padding:2px 8px;border-radius:8px;font-weight:600">LINE連携済み</span>'
+      : '<span style="background:#f3f4f6;color:#9ca3af;font-size:11px;padding:2px 8px;border-radius:8px">未連携</span>';
+    var actions = linked
+      ? '<button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="previewMonthlyReport(\''+escHtml(c.fl)+'\')">👁 プレビュー</button> '+
+        '<button class="btn btn-sm" style="background:#06c755;color:#fff;font-size:11px;border:none;padding:4px 10px;border-radius:5px;cursor:pointer" onclick="sendMonthlyReportToFl(\''+escHtml(c.fl)+'\')">📤 送信</button>'
+      : '<span style="font-size:11px;color:#9ca3af">LINE ID紐付けタブで設定</span>';
+    return '<tr>' +
+      '<td><span style="font-size:11px;color:#6b7280">'+escHtml(c.fl)+'</span><br><b>'+escHtml(c.name)+'</b></td>' +
+      '<td>'+lineStatus+'</td>' +
+      '<td style="text-align:right">'+total.toLocaleString()+'</td>' +
+      '<td style="text-align:right">'+(rating>0?rating.toFixed(1):'--')+'</td>' +
+      '<td style="text-align:right">'+(unresponded>0?'<span style="color:#ef4444;font-weight:600">'+unresponded+'</span>':'0')+'</td>' +
+      '<td id="mr-row-'+escHtml(c.fl)+'">'+actions+'</td>' +
+      '</tr>';
+  }).join('');
+
+  document.getElementById('line-body').innerHTML =
+    '<div style="padding:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">' +
+      '<div>' +
+        '<div style="font-size:15px;font-weight:700;color:#1f2937">月次クチコミレポート 手動送信</div>' +
+        '<div style="font-size:12px;color:#6b7280;margin-top:2px">契約中 '+contracted.length+' 社 ／ LINE連携済み '+linkedFls.length+' 社</div>' +
+      '</div>' +
+      '<button id="mr-bulk-btn" class="btn btn-primary" style="background:#06c755;border-color:#06c755" onclick="sendMonthlyReportBulk('+JSON.stringify(linkedFls)+')" '+(linkedFls.length===0?'disabled':'')+'>'+
+        '📤 一括送信（LINE連携済み '+linkedFls.length+' 社）'+
+      '</button>' +
+    '</div>' +
+    '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#92400e">' +
+      '⚠️ <b>送信前に必ずプレビューで文面を確認してください。</b> 送信後の取り消しはできません。' +
+    '</div>' +
+    '<div class="table-wrap"><table>' +
+      '<thead><tr><th>案件</th><th>LINE</th><th style="text-align:right">クチコミ</th><th style="text-align:right">評価</th><th style="text-align:right">未返信</th><th>操作</th></tr></thead>' +
+      '<tbody>'+rows+'</tbody>' +
+    '</table></div>' +
+    '</div>';
 }
 
 modules.review = function() { renderReviewModule(); };
@@ -3918,8 +4239,8 @@ function openMtgView(id){
     '<span class="key">種別</span><span class="val">'+escHtml(m.meetingStatus)+'</span>'+
     '<span class="key">日付</span><span class="val">'+escHtml(m.date||m.scheduledDate)+'</span>'+
     '<span class="key">参加者</span><span class="val" style="display:flex;flex-wrap:wrap;gap:4px">'+attendeeChips+'</span>'+
-    '<span class="key">議事録</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.summary||m.agenda||'-')+'</span>'+
-    '<span class="key">ToDo / 次のアクション</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.actions||'-')+'</span>'+
+    (m.issues||m.decisions?'<span class="key">① 課題</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.issues||'-')+'</span>'+'<span class="key">② 決定事項</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.decisions||'-')+'</span>':'<span class="key">議事録</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.summary||m.agenda||'-')+'</span>') +
+    '<span class="key">③ 次回アクション</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.actions||'-')+'</span>'+
     '</div>',
     '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>'+
     '<button class="btn btn-primary" onclick="closeModal();openMtgForm(\''+escHtml(m.caseFL)+'\',\''+escHtml(id)+'\')">編集</button>');
@@ -3941,13 +4262,18 @@ function openMtgForm(fl,editId){
       '</div>'+
     '</div>' +
     '<div class="form-group">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'+
-        '<label style="margin:0">議事録</label>'+
-        '<button type="button" onclick="mtgInsertTemplate()" style="padding:2px 10px;font-size:11px;border:1px solid #4F46E5;border-radius:5px;background:#EEF2FF;color:#4F46E5;cursor:pointer;font-weight:600">📋 テンプレート挿入</button>'+
-      '</div>'+
-      '<textarea id="mf-summary" rows="7" placeholder="議事録を入力してください">'+escHtml(ex?ex.summary||ex.agenda||'':'')+'</textarea>'+
+      '<label>① 課題 <span style="color:#ef4444">*</span> <span style="font-size:11px;color:#9ca3af;font-weight:400">（今回MTGで挙がった問題・確認事項）</span></label>'+
+      '<textarea id="mf-issues" rows="3" placeholder="例：・GBP評価が先月より0.2下がっている&#10;・クチコミ返信が3件未対応">'+escHtml(ex?ex.issues||'':'')+'</textarea>'+
     '</div>' +
-    '<div class="form-group"><label>ToDo / 次のアクション</label><textarea id="mf-actions" rows="3" placeholder="例：・A社への見積もり送付（担当：田中、期限：6/30）">'+escHtml(ex?ex.actions||'':'')+'</textarea></div>',
+    '<div class="form-group">'+
+      '<label>② 決定事項 <span style="color:#ef4444">*</span> <span style="font-size:11px;color:#9ca3af;font-weight:400">（このMTGで決まったこと）</span></label>'+
+      '<textarea id="mf-decisions" rows="3" placeholder="例：・来月までにクチコミ5件獲得を目標にする&#10;・GBP写真を月10枚更新することに同意">'+escHtml(ex?ex.decisions||'':'')+'</textarea>'+
+    '</div>' +
+    '<div class="form-group">'+
+      '<label>③ 次回アクション <span style="color:#ef4444">*</span> <span style="font-size:11px;color:#9ca3af;font-weight:400">（誰が・いつまでに・何をするか）</span></label>'+
+      '<textarea id="mf-actions" rows="3" placeholder="例：・田中：7/5までにクチコミ依頼シートを送付&#10;・顧客：7/10までに写真素材を提供">'+escHtml(ex?ex.actions||'':'')+'</textarea>'+
+    '</div>' +
+    (ex&&(ex.summary||ex.agenda)?'<div class="form-group"><details><summary style="font-size:12px;color:#9ca3af;cursor:pointer">旧フォーマット議事録（参照のみ）</summary><div style="font-size:12px;color:#9ca3af;white-space:pre-wrap;padding:8px;background:#f9fafb;border-radius:4px;margin-top:6px">'+escHtml(ex.summary||ex.agenda)+'</div></details></div>':''),
     (editId?'<button class="btn btn-danger" onclick="deleteMtg(\''+escHtml(editId)+'\',\''+escHtml(fl)+'\')">削除</button>':'')+
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="saveMtg(\''+escHtml(fl)+'\',\''+escHtml(editId||'')+'\')">保存</button>');
 }
@@ -3959,10 +4285,19 @@ function mtgInsertTemplate(){
 }
 function saveMtg(fl,editId){
   var st=document.getElementById('mf-status').value;
+  var issues=(document.getElementById('mf-issues').value||'').trim();
+  var decisions=(document.getElementById('mf-decisions').value||'').trim();
+  var actions=(document.getElementById('mf-actions').value||'').trim();
+  // 空欄チェック（実施済みMTGのみ必須）
+  if(st==='実施済み'){
+    if(!issues){ toast('① 課題 を入力してください', true); document.getElementById('mf-issues').focus(); return; }
+    if(!decisions){ toast('② 決定事項 を入力してください', true); document.getElementById('mf-decisions').focus(); return; }
+    if(!actions){ toast('③ 次回アクション を入力してください', true); document.getElementById('mf-actions').focus(); return; }
+  }
   var cbs=document.querySelectorAll('#mf-attendees-wrap input[type=checkbox]:checked');
   var checked=[];for(var i=0;i<cbs.length;i++) checked.push(cbs[i].value);
   var attendees=checked.join('、');
-  var obj={id:editId||uid(),caseFL:fl,meetingStatus:st,scheduledDate:st==='予定'?document.getElementById('mf-date').value:'',date:st==='実施済み'?document.getElementById('mf-date').value:'',attendees:attendees,summary:document.getElementById('mf-summary').value,actions:document.getElementById('mf-actions').value,createdAt:today()};
+  var obj={id:editId||uid(),caseFL:fl,meetingStatus:st,scheduledDate:st==='予定'?document.getElementById('mf-date').value:'',date:st==='実施済み'?document.getElementById('mf-date').value:'',attendees:attendees,issues:issues,decisions:decisions,actions:actions,createdAt:today()};
   var s=getStore();
   if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0)s.meetings[idx]=obj;else s.meetings.push(obj);}
   else s.meetings.push(obj);
@@ -4913,16 +5248,49 @@ function cleanupBillingData(){
 }
 function updateSidebarBadges(){
   var bd=getBillingData();
-  var cnt=(bd.invoices||[]).filter(function(x){return x.status==='未収'||x.status==='未処理';}).length;
-  var el=document.querySelector('[data-module="payment"]');
-  if(!el) return;
-  var ex=el.querySelector('.nav-badge'); if(ex) ex.remove();
-  if(cnt>0){
-    var b=document.createElement('span');
-    b.className='nav-badge';
-    b.textContent=cnt>99?'99+':String(cnt);
-    b.style.cssText='margin-left:auto;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;line-height:16px';
-    el.appendChild(b);
+  // 支払い：未収バッジ
+  var payCnt=(bd.invoices||[]).filter(function(x){return x.status==='未収'||x.status==='未処理';}).length;
+  var payEl=document.querySelector('[data-module="payment"]');
+  if(payEl){
+    var exPay=payEl.querySelector('.nav-badge'); if(exPay) exPay.remove();
+    if(payCnt>0){
+      var bp=document.createElement('span');
+      bp.className='nav-badge';
+      bp.textContent=payCnt>99?'99+':String(payCnt);
+      bp.style.cssText='margin-left:auto;background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;line-height:16px';
+      payEl.appendChild(bp);
+    }
+  }
+  // LINE：未対応バッジ
+  var lineEl=document.querySelector('[data-module="line"]');
+  if(lineEl){
+    var exLine=lineEl.querySelector('.nav-badge'); if(exLine) exLine.remove();
+    if(_lmSummary){
+      var lineCnt=0;
+      Object.keys(_lmSummary).forEach(function(fl){
+        if(_lmSummary[fl].hasClam||_lmSummary[fl].unread>0) lineCnt++;
+      });
+      if(lineCnt>0){
+        var bl=document.createElement('span');
+        bl.className='nav-badge';
+        bl.textContent=lineCnt>99?'99+':String(lineCnt);
+        bl.style.cssText='margin-left:auto;background:#8b5cf6;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;line-height:16px';
+        lineEl.appendChild(bl);
+      }
+    }
+  }
+  // ロールに応じてナビアイテムをグレーアウト（アクセス不可モジュール）
+  if(typeof MODULE_ROLE_REQUIRED !== 'undefined' && typeof canAccessModule === 'function'){
+    document.querySelectorAll('.nav-item[data-module]').forEach(function(el){
+      var m=el.dataset.module;
+      if(!canAccessModule(m)){
+        el.style.opacity='0.4';
+        el.title='権限不足のためアクセスできません';
+      } else {
+        el.style.opacity='';
+        el.title='';
+      }
+    });
   }
 }
 
@@ -6790,19 +7158,40 @@ async function loadUserList() {
   if (!users.length) { el.innerHTML = '<div style="font-size:12px;color:#9ca3af">ユーザーなし</div>'; return; }
   var rows = users.map(function(u){
     var isMe = currentUser && u.email === currentUser.email;
-    var ownerBadge = OWNER_EMAILS.indexOf(u.email) !== -1
-      ? '<span style="background:#f59e0b;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:6px">オーナー</span>'
-      : '<span style="background:#60a5fa;color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600;margin-left:6px">ユーザー</span>';
+    var isHardOwner = OWNER_EMAILS.indexOf(u.email) !== -1;
+    // ロール: オーナーメールは常にadmin、それ以外はuser_metadataから取得
+    var meta = u.user_metadata || {};
+    var role = isHardOwner ? 'admin' : (meta.role || 'operator');
+    var roleLabel = ROLE_LABELS[role] || role;
+    var roleColor = ROLE_COLORS[role] || '#60a5fa';
+    var roleBadge = '<span style="background:'+roleColor+';color:#fff;font-size:10px;padding:1px 6px;border-radius:8px;font-weight:600">'+roleLabel+'</span>';
+    // ロール変更セレクト（管理者のみ表示、自分・オーナーは変更不可）
+    var roleSelect = (!isMe && !isHardOwner) ?
+      '<select style="margin-left:8px;font-size:11px;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px" onchange="changeUserRole(\''+escHtml(u.id)+'\',this.value,\''+escHtml(u.email)+'\')">' +
+      ['admin','operator','viewer'].map(function(r){ return '<option value="'+r+'"'+(role===r?' selected':'')+'>'+ROLE_LABELS[r]+'</option>'; }).join('') +
+      '</select>' : '';
     var lastLogin = u.last_sign_in_at ? u.last_sign_in_at.slice(0,16).replace('T',' ') : '未ログイン';
     var actions = isMe ? '<span style="font-size:11px;color:#9ca3af">（自分）</span>'
       : '<button class="btn btn-sm btn-secondary" onclick="resetUserPassword(\''+escHtml(u.email)+'\')">🔑 PW リセット</button>'+
-        (OWNER_EMAILS.indexOf(u.email) === -1
+        (!isHardOwner
           ? ' <button class="btn btn-sm btn-danger" onclick="deleteUser(\''+escHtml(u.id)+'\',\''+escHtml(u.email)+'\')">削除</button>'
           : '');
     return '<tr><td><div style="font-weight:500">'+escHtml(u.email||'')+'</div><div style="font-size:11px;color:#9ca3af">最終ログイン: '+lastLogin+'</div></td>'+
-      '<td>'+ownerBadge+'</td><td style="white-space:nowrap">'+actions+'</td></tr>';
+      '<td>'+roleBadge+roleSelect+'</td><td style="white-space:nowrap">'+actions+'</td></tr>';
   }).join('');
-  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>メールアドレス</th><th>ロール</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>メールアドレス</th><th>ロール</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div style="font-size:11px;color:#9ca3af;margin-top:8px">管理者: 全機能利用可 / 運用担当: 通常操作可 / 閲覧専用: 読み取りのみ（将来実装）</div>';
+}
+
+async function changeUserRole(userId, newRole, email) {
+  var res = await callUserAdmin('set_role', { userId: userId, role: newRole });
+  if (res.ok) {
+    toast(email + ' のロールを「' + (ROLE_LABELS[newRole]||newRole) + '」に変更しました');
+    loadUserList();
+  } else {
+    toast('エラー: ' + (res.error || 'ロール変更失敗'), true);
+    loadUserList(); // セレクトを元に戻す
+  }
 }
 
 async function inviteUser() {
@@ -6942,9 +7331,22 @@ var currentUser = null;
 // オーナーメアド一覧（このリストにいればロール = owner）
 var OWNER_EMAILS = ['ryo.kasai@funrix.co.jp'];
 
-function isOwner() {
-  return currentUser && OWNER_EMAILS.indexOf(currentUser.email) !== -1;
+// ロール取得 (admin > operator > viewer)
+// 優先順: OWNER_EMAILS ハードコード → user_metadata.role → デフォルト 'operator'
+function getUserRole() {
+  if (!currentUser) return 'viewer';
+  if (OWNER_EMAILS.indexOf(currentUser.email) !== -1) return 'admin';
+  var meta = currentUser.user_metadata || {};
+  return meta.role || 'operator';
 }
+
+function isOwner()    { return getUserRole() === 'admin'; }
+function isAdmin()    { return getUserRole() === 'admin'; }
+function isOperator() { var r = getUserRole(); return r === 'admin' || r === 'operator'; }
+// viewer は読み取り専用 — 現時点では全員閲覧できるが将来的に制御用
+
+var ROLE_LABELS = { admin:'管理者', operator:'運用担当', viewer:'閲覧専用' };
+var ROLE_COLORS = { admin:'#f59e0b', operator:'#3b82f6', viewer:'#94a3b8' };
 
 async function startWithAuth() {
   var res = await _sb.auth.getSession();
@@ -6974,9 +7376,9 @@ function showMainApp() {
 function renderSidebarUser() {
   if (!currentUser) return;
   var email = currentUser.email || '';
-  var owner = isOwner();
-  var roleLabel = owner ? 'オーナー' : 'ユーザー';
-  var roleColor = owner ? '#f59e0b' : '#60a5fa';
+  var role = getUserRole();
+  var roleLabel = ROLE_LABELS[role] || role;
+  var roleColor = ROLE_COLORS[role] || '#60a5fa';
   var initial = email.charAt(0).toUpperCase();
   document.getElementById('sidebar-user').innerHTML =
     '<div style="display:flex;align-items:center;gap:8px">' +

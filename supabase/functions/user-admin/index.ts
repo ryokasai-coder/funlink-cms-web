@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
 
     const adminSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
     const body = await req.json()
-    const { action, email, userId } = body
+    const { action, email, userId, role } = body
 
     // ユーザー一覧取得
     if (action === 'list') {
@@ -85,6 +85,22 @@ Deno.serve(async (req) => {
         link: data?.properties?.action_link,
         error: error?.message
       }, { headers: corsHeaders })
+    }
+
+    // ロール変更（user_metadata.role を更新）
+    if (action === 'set_role') {
+      if (!userId) return Response.json({ ok: false, error: 'userIdが必要です' }, { headers: corsHeaders })
+      const validRoles = ['admin', 'operator', 'viewer']
+      if (!validRoles.includes(role)) return Response.json({ ok: false, error: '不正なロール値です' }, { headers: corsHeaders })
+      // オーナーメールのロールは変更不可
+      const { data: targetUser } = await adminSb.auth.admin.getUserById(userId)
+      if (targetUser?.user && OWNER_EMAILS.includes(targetUser.user.email!)) {
+        return Response.json({ ok: false, error: 'オーナーのロールは変更できません' }, { headers: corsHeaders })
+      }
+      const { error } = await adminSb.auth.admin.updateUserById(userId, {
+        user_metadata: { role }
+      })
+      return Response.json({ ok: !error, error: error?.message }, { headers: corsHeaders })
     }
 
     return Response.json({ ok: false, error: '不明なアクション' }, { status: 400, headers: corsHeaders })
