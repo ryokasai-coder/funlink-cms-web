@@ -2476,64 +2476,228 @@ async function deleteLineMsg(id, fl){
 function renderLineWebhook() {
   var s=getStore();
   var cfg=s.lineConfig||{};
-  var configured = !!(cfg.token && cfg.server);
+  var WEBHOOK_URL='https://xfumvuxahjferrapdywj.supabase.co/functions/v1/line-webhook';
+  var configured = !!(cfg.token && cfg.secret);
   var statusBadge = configured
     ? '<span class="badge badge-green">✓ 設定済み</span>'
     : '<span class="badge badge-yellow">⚠ 未設定</span>';
   document.getElementById('line-body').innerHTML =
-    '<div style="max-width:760px">' +
+    '<div style="max-width:800px">' +
 
-    // システムフロー
+    // 自動更新フロー
     '<div class="card" style="margin-bottom:16px">' +
-    '<div class="card-title">📊 自動返信フロー設計</div>' +
+    '<div class="card-title">⚡ 自動更新フロー（Supabase Edge Function）</div>' +
     '<div style="display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:4px">' +
-    ['顧客がLINE送信','Webhook受信\n(Node.js)','LINE UserID照合\n→FLコード特定','Gemini AI\n返信案生成','Slack通知\n→担当者確認','手動でLINE返信'].map(function(label,i,arr){
-      var icons=['💬','⚡','🔍','✨','📲','✅'];
+    ['顧客がLINE送信','Webhook受信\n(Supabase Function)','LINE UserID照合\n→FLコード特定','line_messages\nに自動保存','CMS管理画面\nリアルタイム反映','担当者が返信'].map(function(label,i,arr){
+      var icons=['💬','⚡','🔍','💾','📊','✅'];
       return '<div style="flex:1;min-width:100px;text-align:center;padding:10px 8px;'+(i<arr.length-1?'border-right:1px dashed #e5e7eb;':'')+'">'+
-        '<div style="font-size:22px;margin-bottom:4px">'+icons[i]+'</div>'+
+        '<div style="font-size:20px;margin-bottom:4px">'+icons[i]+'</div>'+
         '<div style="font-size:11px;color:#374151;font-weight:600;line-height:1.4">'+label.replace(/\n/g,'<br>')+'</div>'+
-        (i<arr.length-1?'<div style="color:#9ca3af;margin-top:6px;font-size:16px">→</div>':'')+'</div>';
+        (i<arr.length-1?'<div style="color:#9ca3af;margin-top:6px;font-size:14px">→</div>':'')+'</div>';
     }).join('')+
     '</div></div>' +
 
-    // Webhook設定フォーム
+    // Webhook URL
     '<div class="card" style="margin-bottom:16px">' +
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">' +
-    '<div class="card-title" style="margin:0">⚙️ Webhook設定</div>' + statusBadge + '</div>' +
+    '<div class="card-title">🔗 Webhook URL（LINE Developers に設定するURL）</div>' +
+    '<div style="display:flex;gap:8px;align-items:center">' +
+    '<input type="text" value="'+WEBHOOK_URL+'" readonly style="font-family:monospace;font-size:12px;background:#f3f4f6;flex:1">' +
+    '<button class="btn btn-secondary" style="white-space:nowrap;font-size:12px" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+WEBHOOK_URL+'\').then(function(){toast(\'コピーしました\')})">📋 コピー</button>' +
+    '</div>' +
+    '<div style="font-size:12px;color:#6b7280;margin-top:6px">LINE Developers → Messaging API → <b>Webhook URL</b> にこのURLを設定し「Webhookの利用」をオンにしてください</div>' +
+    '</div>' +
+
+    // シークレット設定
+    '<div class="card" style="margin-bottom:16px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    '<div class="card-title" style="margin:0">🔑 Channel Token / Secret 設定</div>' + statusBadge + '</div>' +
+    '<div style="background:#fef9c3;border:1px solid #fcd34d;border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;line-height:2">' +
+    '⚠️ Channel Secret/TokenはSupabaseシークレットとして保存します。<br>' +
+    '<b>下記コマンドをターミナルで一度だけ実行してください：</b>' +
+    '<pre style="background:#1e293b;color:#7dd3fc;padding:10px 12px;border-radius:6px;margin:8px 0 4px;font-size:11px;overflow-x:auto;white-space:pre">npx supabase secrets set LINE_CHANNEL_SECRET=あなたのSecret --project-ref xfumvuxahjferrapdywj\nnpx supabase secrets set LINE_CHANNEL_ACCESS_TOKEN=あなたのToken --project-ref xfumvuxahjferrapdywj\nnpx supabase functions deploy line-webhook --project-ref xfumvuxahjferrapdywj</pre>' +
+    'Supabaseダッシュボード → Settings → Vault からGUI設定も可能です</div>' +
+    '<div style="font-size:12px;color:#374151;font-weight:600;margin-bottom:8px">参照用として保存（省略可）：</div>' +
     '<div class="form-row">' +
-    '<div class="form-group"><label>Channel Access Token</label><input type="password" id="lw_token" value="'+escHtml(cfg.token||'')+'" placeholder="LINE Messaging API のトークン"></div>' +
-    '<div class="form-group"><label>Channel Secret</label><input type="password" id="lw_secret" value="'+escHtml(cfg.secret||'')+'" placeholder="LINE Messaging API のシークレット"></div></div>' +
-    '<div class="form-group"><label>Webhook サーバー URL</label><input type="text" id="lw_server" value="'+escHtml(cfg.server||'')+'" placeholder="https://your-server.run.app/webhook"></div>' +
-    '<div class="form-group"><label>Slack Webhook URL <span style="font-size:11px;color:#6b7280">（Slack通知先）</span></label><input type="text" id="lw_slack" value="'+escHtml(cfg.slack||'')+'" placeholder="https://hooks.slack.com/services/..."></div>' +
+    '<div class="form-group"><label>Channel Access Token</label><input type="password" id="lw_token" value="'+escHtml(cfg.token||'')+'" placeholder="Long-lived token"></div>' +
+    '<div class="form-group"><label>Channel Secret</label><input type="password" id="lw_secret" value="'+escHtml(cfg.secret||'')+'" placeholder="32文字の英数字"></div></div>' +
+    '<div class="form-group"><label>Slack Webhook URL <span style="font-size:11px;color:#6b7280">（任意: 未対応メッセージ通知）</span></label><input type="text" id="lw_slack" value="'+escHtml(cfg.slack||'')+'" placeholder="https://hooks.slack.com/services/..."></div>' +
     '<div style="display:flex;gap:10px;align-items:center;margin-top:4px">' +
-    '<button class="btn btn-primary" onclick="saveLineConfig()">設定を保存</button>' +
-    (cfg.server?'<button class="btn btn-secondary" onclick="testWebhook()">接続テスト</button>':'')+'</div></div>' +
+    '<button class="btn btn-primary" onclick="saveLineConfig()">保存</button>' +
+    '<button class="btn btn-secondary" onclick="testWebhook()">⚡ 接続テスト</button></div></div>' +
 
     // 設定手順
     '<div class="card">' +
-    '<div class="card-title">📋 設定手順</div>' +
-    '<ol style="font-size:13px;line-height:2.4;color:#374151;padding-left:20px">' +
-    '<li>Webhookサーバー（Node.js）を <b>Cloud Run</b> または <b>Render</b> にデプロイし、サーバーURLを取得</li>' +
-    '<li><a href="https://manager.line.biz/" target="_blank" style="color:#4F46E5">LINE Official Account Manager</a> → Messaging API → Webhook URL に上記サーバーURLを設定し「Webhookの利用」をオン</li>' +
-    '<li>Channel Access Token・Channel Secret を上の欄に入力して保存</li>' +
-    '<li>Slack Incoming Webhook URL を設定（担当者への通知先）</li>' +
-    '<li>設定後「接続テスト」ボタンで動作確認</li>' +
+    '<div class="card-title">📋 初回セットアップ手順</div>' +
+    '<ol style="font-size:13px;line-height:2.6;color:#374151;padding-left:20px">' +
+    '<li><a href="https://developers.line.biz/" target="_blank" style="color:#4F46E5">LINE Developers Console</a> → Messaging API チャネルを開く</li>' +
+    '<li><b>Channel secret</b> をコピー → 上のコマンドの LINE_CHANNEL_SECRET に入力して実行</li>' +
+    '<li><b>Channel access token（Long-lived）</b> をコピー → LINE_CHANNEL_ACCESS_TOKEN に入力して実行</li>' +
+    '<li><code style="background:#f3f4f6;padding:2px 6px;border-radius:3px">npx supabase functions deploy line-webhook --project-ref xfumvuxahjferrapdywj</code> を実行</li>' +
+    '<li>LINE Developers → Webhook settings → Webhook URL に上のURLを設定 → 「Webhookの利用」をオン</li>' +
+    '<li>LINEテスト送信 または「⚡ 接続テスト」で動作確認 → ✅ で完了</li>' +
     '</ol></div></div>';
 }
 
 async function testWebhook() {
-  var s=getStore(); var cfg=s.lineConfig||{};
-  if (!cfg.server) { toast('サーバーURLが未設定です', true); return; }
+  var WEBHOOK_URL='https://xfumvuxahjferrapdywj.supabase.co/functions/v1/line-webhook';
   try {
-    var res = await fetch(cfg.server+'/health', { method:'GET' });
-    toast(res.ok ? 'Webhook サーバー接続OK ✅' : 'エラー: HTTP '+res.status, !res.ok);
-  } catch(e) { toast('接続失敗: '+e.message, true); }
+    toast('接続テスト中...');
+    var res = await fetch(WEBHOOK_URL, { method:'GET' });
+    var data = {};
+    try { data = await res.json(); } catch(e2) {}
+    if (res.ok && data.ok) {
+      toast('Webhook 接続OK ✅ (Supabase Edge Function 稼働中)');
+    } else {
+      toast('エラー: HTTP '+res.status+' — Edge Functionがデプロイされていない可能性があります', true);
+    }
+  } catch(e) { toast('接続失敗: '+e.message+' — デプロイを確認してください', true); }
 }
 
 function saveLineConfig(){
   var s=getStore();
-  s.lineConfig={token:(document.getElementById('lw_token')||{}).value||'',secret:(document.getElementById('lw_secret')||{}).value||'',slack:(document.getElementById('lw_slack')||{}).value||'',server:(document.getElementById('lw_server')||{}).value||''};
+  s.lineConfig={
+    token:(document.getElementById('lw_token')||{}).value||'',
+    secret:(document.getElementById('lw_secret')||{}).value||'',
+    slack:(document.getElementById('lw_slack')||{}).value||'',
+    server:'https://xfumvuxahjferrapdywj.supabase.co/functions/v1/line-webhook'
+  };
   saveStore(s);toast('設定を保存しました');renderLineWebhook();
+}
+
+// ===================== LINE CSV一括取込 =====================
+function showLineCsvImport() {
+  var flOptions = MASTER_CASES.map(function(c){
+    return '<option value="'+escHtml(c.fl)+'">'+escHtml(c.fl)+' '+escHtml(c.name)+'</option>';
+  }).join('');
+  openModal(
+    '📥 LINE履歴 CSV一括取込',
+    '<div style="font-size:13px;margin-bottom:12px;background:#eff6ff;border:1px solid #bfdbfe;padding:10px 12px;border-radius:6px;line-height:1.8">' +
+    '📋 <b>対応フォーマット（LINE Official Account Manager）</b><br>' +
+    '列: <code style="background:#e0e7ff;padding:1px 5px;border-radius:3px;font-size:12px">日時, 送受信, 送信者名, タイプ, 内容</code><br>' +
+    '送受信: <code style="background:#e0e7ff;padding:1px 5px;border-radius:3px">受信</code>=顧客 / <code style="background:#e0e7ff;padding:1px 5px;border-radius:3px">送信</code>=FunLink<br>' +
+    '画像・スタンプ等は「【画像を送信】」として記録されます</div>' +
+    '<div class="form-group"><label>取込先 FL（案件）</label>' +
+    '<select id="csv_fl" style="font-size:13px"><option value="">-- FLを選択 --</option>'+flOptions+'</select></div>' +
+    '<div class="form-group"><label>CSVファイル</label>' +
+    '<input type="file" id="csv_file" accept=".csv,.txt" style="font-size:13px"></div>' +
+    '<div id="csv_preview" style="margin-top:12px"></div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>' +
+    '<button class="btn btn-primary" onclick="previewLineCsv()">📋 プレビュー確認</button>'
+  );
+}
+
+function _parseCsvLine(line) {
+  var result=[], current='', inQuote=false;
+  for (var i=0; i<line.length; i++) {
+    var ch=line[i];
+    if (ch==='"') {
+      if (inQuote && line[i+1]==='"') { current+='"'; i++; }
+      else { inQuote=!inQuote; }
+    } else if (ch===',' && !inQuote) {
+      result.push(current.trim()); current='';
+    } else { current+=ch; }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function _parseLineCsvText(csvText) {
+  if (csvText.charCodeAt(0)===0xFEFF) csvText=csvText.slice(1);
+  var lines=csvText.trim().split(/\r?\n/);
+  if (lines.length<2) return [];
+  var headers=_parseCsvLine(lines[0]).map(function(h){return h.toLowerCase().replace(/\s/g,'');});
+  var dateIdx=-1, sendTypeIdx=-1, senderIdx=-1, typeIdx=-1, msgIdx=-1;
+  headers.forEach(function(h,i){
+    if ((h.includes('日時')||h.includes('date')||h.includes('time')) && dateIdx===-1) dateIdx=i;
+    else if ((h.includes('送受信')||h.includes('送信者種別')) && sendTypeIdx===-1) sendTypeIdx=i;
+    else if ((h.includes('送信者')||h.includes('sender')||h.includes('名前')) && senderIdx===-1) senderIdx=i;
+    else if ((h.includes('タイプ')||h.includes('type')||h.includes('種別')) && typeIdx===-1) typeIdx=i;
+    else if (h.includes('内容')||h.includes('メッセージ')||h.includes('message')) msgIdx=i;
+  });
+  if (dateIdx===-1) dateIdx=0;
+  if (msgIdx===-1) msgIdx=headers.length-1;
+  var msgs=[];
+  for (var i=1; i<lines.length; i++) {
+    var row=lines[i].trim();
+    if (!row) continue;
+    var cols=_parseCsvLine(row);
+    var dateStr=(cols[dateIdx]||'').trim();
+    var sendType=sendTypeIdx>=0?(cols[sendTypeIdx]||'').trim():'受信';
+    var senderName=senderIdx>=0?(cols[senderIdx]||'').trim():'';
+    var msgType=typeIdx>=0?(cols[typeIdx]||'').trim():'テキスト';
+    var message=(cols[msgIdx]||'').trim();
+    if (!message||!dateStr) continue;
+    var ltype=msgType.toLowerCase();
+    if (ltype==='画像'||ltype==='image') message='【画像を送信】';
+    else if (ltype==='スタンプ'||ltype==='sticker') message='【スタンプ】';
+    else if (ltype==='動画'||ltype==='video') message='【動画を送信】';
+    else if (ltype!=='テキスト'&&ltype!=='text'&&ltype!=='') continue;
+    var isIncoming=!sendType||sendType==='受信'||sendType==='received'||sendType==='顧客';
+    var sender=isIncoming?'顧客':'FunLink';
+    var normalized=dateStr.replace(/\//g,'-');
+    var dateOnly=normalized.slice(0,10);
+    var isoTs;
+    try { isoTs=new Date(normalized).toISOString(); } catch(e) { isoTs=new Date().toISOString(); }
+    msgs.push({date:dateOnly,sender:sender,sender_name:isIncoming?senderName:'FunLink',message:message,category:'その他',status:isIncoming?'未対応':'対応完了',created_at:isoTs});
+  }
+  return msgs;
+}
+
+function previewLineCsv() {
+  var fl=(document.getElementById('csv_fl')||{}).value||'';
+  var fileInput=document.getElementById('csv_file');
+  if (!fl) { toast('FLを選択してください',true); return; }
+  if (!fileInput||!fileInput.files||!fileInput.files[0]) { toast('CSVファイルを選択してください',true); return; }
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var msgs=_parseLineCsvText(e.target.result);
+    var previewDiv=document.getElementById('csv_preview');
+    if (!previewDiv) return;
+    if (!msgs.length) {
+      previewDiv.innerHTML='<div style="color:#ef4444;font-size:13px;padding:10px;background:#fef2f2;border-radius:6px">⚠ メッセージが見つかりませんでした。列ヘッダー（日時・送受信・送信者名・タイプ・内容）を確認してください。</div>';
+      return;
+    }
+    var incoming=msgs.filter(function(m){return m.sender==='顧客';}).length;
+    var tableRows=msgs.slice(0,8).map(function(m){
+      return '<tr style="border-bottom:1px solid #f3f4f6">' +
+        '<td style="padding:3px 8px;font-size:11px;white-space:nowrap;color:#6b7280">'+escHtml(m.date)+'</td>' +
+        '<td style="padding:3px 8px"><span class="badge '+(m.sender==='顧客'?'badge-blue':'badge-green')+'" style="font-size:10px">'+escHtml(m.sender)+'</span></td>' +
+        '<td style="padding:3px 8px;font-size:11px;max-width:100px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+escHtml(m.sender_name)+'</td>' +
+        '<td style="padding:3px 8px;font-size:12px;max-width:280px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">'+escHtml(m.message)+'</td></tr>';
+    }).join('');
+    previewDiv.innerHTML=
+      '<div style="font-size:12px;margin-bottom:8px;padding:8px 10px;background:#f0fdf4;border-radius:6px;color:#374151">' +
+      '✅ <b>'+msgs.length+'件</b>（顧客: '+incoming+'件 / FunLink: '+(msgs.length-incoming)+'件）'+(msgs.length>8?' — 先頭8件プレビュー':'')+
+      '</div>' +
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">' +
+      '<thead><tr style="background:#f9fafb"><th style="padding:4px 8px;font-size:11px;text-align:left;font-weight:600">日時</th><th style="padding:4px 8px;font-size:11px">送信者</th><th style="padding:4px 8px;font-size:11px;text-align:left">名前</th><th style="padding:4px 8px;font-size:11px;text-align:left">メッセージ</th></tr></thead>' +
+      '<tbody>'+tableRows+'</tbody></table></div>';
+    window._csvMsgsBuf=msgs;
+    window._csvFlBuf=fl;
+    var footer=document.querySelector('.modal-footer');
+    if (footer) footer.innerHTML='<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="bulkImportLineMsgs(window._csvFlBuf,window._csvMsgsBuf)">✅ 取込実行（'+msgs.length+'件）</button>';
+  };
+  reader.readAsText(fileInput.files[0],'UTF-8');
+}
+
+async function bulkImportLineMsgs(fl, msgs) {
+  if (!msgs||!msgs.length||!fl) return;
+  var records=msgs.map(function(m){
+    return {id:uid(),case_fl:fl,date:m.date,sender:m.sender,sender_name:m.sender_name||'',assignee:'',category:m.category||'その他',message:m.message,reply_draft:'',status:m.status||'未対応',created_at:m.created_at};
+  });
+  var errors=0;
+  for (var i=0; i<records.length; i+=100) {
+    var batch=records.slice(i,i+100);
+    var res=await _sb.from('line_messages').insert(batch);
+    if (res.error) { errors++; console.error(res.error); }
+  }
+  _invalidateLmCache(fl);
+  closeModal();
+  window._csvMsgsBuf=null; window._csvFlBuf=null;
+  if (errors) { toast('一部エラーが発生しました（'+errors+'バッチ失敗）',true); }
+  else { toast(records.length+'件のメッセージを取込しました ✅'); }
+  state.line.selectedFL=fl;
+  renderLineMessages();
 }
 
 function renderLineAutoLogs(){
