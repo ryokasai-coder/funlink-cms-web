@@ -4563,6 +4563,54 @@ async function assignAllCsStaff(name) {
   }
 }
 
+// 設定ページ用：CS担当者名簿インラインUI
+function _buildCsStaffSettingsHtml() {
+  var list = getCsStaffList();
+  var rows = list.map(function(n, i){
+    var cnt = MASTER_CASES.filter(function(c){ return c.cs_staff === n; }).length;
+    return '<tr><td style="padding:7px 12px;font-size:13px">'+escHtml(n)+'</td>'+
+      '<td style="padding:7px 12px;font-size:12px;color:#9ca3af">'+cnt+' 社担当</td>'+
+      '<td style="padding:7px 12px;text-align:right">'+
+        '<button class="btn btn-sm btn-danger" onclick="removeCsStaffSett('+i+')">削除</button>'+
+      '</td></tr>';
+  }).join('');
+  return '<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">'+
+    '<input type="text" id="cs-sett-name" placeholder="担当者名を入力（例: 葛西 涼）"'+
+      ' style="font-size:13px;flex:1;padding:6px 10px;border:1px solid #e5e7eb;border-radius:6px">'+
+    '<button class="btn btn-primary btn-sm" onclick="addCsStaffSett()">＋ 追加</button>'+
+  '</div>'+
+  (list.length
+    ? '<table style="width:100%;border-collapse:collapse;border:1px solid #f3f4f6;border-radius:6px;overflow:hidden">'+
+        '<thead><tr style="background:#f9fafb;font-size:11px;color:#6b7280">'+
+          '<th style="padding:6px 12px;text-align:left">担当者名</th>'+
+          '<th style="padding:6px 12px;text-align:left">担当案件数</th>'+
+          '<th></th></tr></thead>'+
+        '<tbody>'+rows+'</tbody></table>'
+    : '<div style="padding:16px;background:#f9fafb;border-radius:6px;color:#9ca3af;font-size:13px;text-align:center">'+
+        '担当者が登録されていません。上の欄から追加してください。</div>');
+}
+function addCsStaffSett() {
+  var name = (document.getElementById('cs-sett-name').value||'').trim();
+  if (!name) return;
+  var list = getCsStaffList();
+  if (list.indexOf(name) >= 0) { toast('既に登録されています', true); return; }
+  list.push(name);
+  list.sort(function(a,b){ return a.localeCompare(b,'ja'); });
+  saveCsStaffList(list);
+  var el = document.getElementById('cs-staff-settings-body');
+  if (el) el.innerHTML = _buildCsStaffSettingsHtml();
+  toast(escHtml(name) + ' を追加しました');
+}
+function removeCsStaffSett(idx) {
+  var list = getCsStaffList();
+  var name = list[idx] || '';
+  list.splice(idx, 1);
+  saveCsStaffList(list);
+  var el = document.getElementById('cs-staff-settings-body');
+  if (el) el.innerHTML = _buildCsStaffSettingsHtml();
+  toast(escHtml(name) + ' を削除しました');
+}
+
 // ── クチコミ未マッチ店舗 手動紐付けUI ──
 var _rvUnmFilter = 'all'; // 'all' | 'unlinked'
 var _rvUnmSearch = '';
@@ -7565,6 +7613,15 @@ function renderSettings() {
             '🔄 Supabase→Driveに全移行</button>'+
           '<button class="btn btn-secondary" onclick="downloadBackup()">💾 JSONバックアップをダウンロード</button>'+
         '</div>'+
+      '</div>'+
+
+      // CS担当者名簿
+      '<div style="padding-top:20px;border-top:1px solid #f3f4f6;margin-bottom:28px">'+
+        '<div style="font-size:14px;font-weight:700;color:#1f2937;margin-bottom:4px">👥 CS担当者名簿</div>'+
+        '<div style="font-size:12px;color:#6b7280;margin-bottom:12px">'+
+          'タスク・議事録作成時の担当者自動選択に使用します。ログイン中のメールアドレスと名前を照合します。'+
+        '</div>'+
+        '<div id="cs-staff-settings-body">'+_buildCsStaffSettingsHtml()+'</div>'+
       '</div>'+
 
       // 商品別サービス振り分け
