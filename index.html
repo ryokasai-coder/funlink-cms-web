@@ -7402,18 +7402,19 @@ function seedLearningItems() {
 }
 
 function renderLearningModule(){
-  var s=getStore();var ls=state.learning;
+  var ls=state.learning;
+  var progress=getMeoUserProgress();
   var cats=['全て','MEO基礎','Googleビジネス','クチコミ対策','SEO','営業','ツール操作','その他'];
   var diffs=['全て','入門','基礎','応用'];
-  if (!s.learningItems||s.learningItems.length===0){s.learningItems=seedLearningItems();saveStore(s);}
 
   if(ls.viewId){
-    var item=s.learningItems.find(function(x){return x.id===ls.viewId;});
+    var item=(_meoArticles||[]).find(function(x){return x.id===ls.viewId;});
     if(item){
-      if(!item.read){item.read=true;saveStore(s);}
+      markMeoArticleRead(item.id); // fire-and-forget: Supabaseに既読+閲覧数を記録
+      var pEntry=progress[item.id]||{};
       var embedUrl=getYoutubeEmbedUrl(item.videoUrl||'');
       var dc=_getLearningDiffBadge(item.difficulty||'');
-      var allItems2=s.learningItems.slice();
+      var allItems2=(_meoArticles||[]).slice();
       var curIdx=allItems2.findIndex(function(x){return x.id===ls.viewId;});
       var prevId=curIdx>0?allItems2[curIdx-1].id:null;
       var nextId=curIdx<allItems2.length-1?allItems2[curIdx+1].id:null;
@@ -7432,7 +7433,8 @@ function renderLearningModule(){
             '<span class="badge badge-blue">'+escHtml(item.category)+'</span>'+
             (item.difficulty?'<span class="badge '+dc+'">'+escHtml(item.difficulty)+'</span>':'')+
             (item.minutes?'<span style="font-size:12px;color:#6b7280">⏱ '+escHtml(String(item.minutes))+'分</span>':'')+
-            '<span class="badge '+(item.read?'badge-green':'badge-gray')+'">'+(item.read?'✓ 既読':'未読')+'</span>'+
+            '<span class="badge '+(pEntry.read?'badge-green':'badge-gray')+'">'+(pEntry.read?'✓ 既読':'未読')+'</span>'+
+            (pEntry.views?'<span style="font-size:11px;color:#9ca3af">👁 '+pEntry.views+'回</span>':'')+
             '<span style="font-size:12px;color:#9ca3af;margin-left:auto">'+escHtml(item.createdAt||'')+'</span>'+
           '</div>'+
           '<h2 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:16px">'+escHtml(item.title)+'</h2>'+
@@ -7445,16 +7447,17 @@ function renderLearningModule(){
     }
   }
 
-  var allItems=s.learningItems.slice();
+  var allItems=(_meoArticles||[]).slice();
   var totalCount=allItems.length;
-  var readCount=allItems.filter(function(x){return x.read;}).length;
+  var readCount=allItems.filter(function(x){return progress[x.id]&&progress[x.id].read;}).length;
   var pct=totalCount>0?Math.round(readCount/totalCount*100):0;
   var items=allItems.slice();
   if(ls.catFilter&&ls.catFilter!=='全て') items=items.filter(function(x){return x.category===ls.catFilter;});
   if(ls.diffFilter&&ls.diffFilter!=='全て') items=items.filter(function(x){return x.difficulty===ls.diffFilter;});
   if(ls.search){var q=ls.search.toLowerCase();items=items.filter(function(x){return (x.title||'').toLowerCase().indexOf(q)>=0||(x.content||'').toLowerCase().indexOf(q)>=0||(x.tags||'').toLowerCase().indexOf(q)>=0;});}
-  if(ls.sort==='unread'){items.sort(function(a,b){return (a.read?1:0)-(b.read?1:0)||(b.createdAt||'').localeCompare(a.createdAt||'');});}
+  if(ls.sort==='unread'){items.sort(function(a,b){var ar=progress[a.id]&&progress[a.id].read?1:0;var br=progress[b.id]&&progress[b.id].read?1:0;return ar-br||(b.createdAt||'').localeCompare(a.createdAt||'');});}
   else if(ls.sort==='cat'){items.sort(function(a,b){return (a.category||'').localeCompare(b.category||'')||(b.createdAt||'').localeCompare(a.createdAt||'');});}
+  else if(ls.sort==='views'){items.sort(function(a,b){var av=(progress[a.id]&&progress[a.id].views)||0;var bv=(progress[b.id]&&progress[b.id].views)||0;return bv-av;});}
   else{items.sort(function(a,b){return (b.createdAt||'').localeCompare(a.createdAt||'');});}
 
   var catBtns=cats.map(function(c){
@@ -7466,6 +7469,9 @@ function renderLearningModule(){
   }).join('');
   var cards=items.map(function(item){
     var dc=_getLearningDiffBadge(item.difficulty||'');
+    var pEntry=progress[item.id]||{};
+    var isRead=pEntry.read||false;
+    var views=pEntry.views||0;
     return '<div class="card" style="margin-bottom:10px;padding:14px;cursor:pointer" onclick="state.learning.viewId=\''+escHtml(item.id)+'\';modules.learning()">'+
       '<div style="display:flex;align-items:start;justify-content:space-between;gap:10px">'+
       '<div style="flex:1;min-width:0">'+
@@ -7473,7 +7479,8 @@ function renderLearningModule(){
           '<span class="badge badge-blue">'+escHtml(item.category)+'</span>'+
           (item.difficulty?'<span class="badge '+dc+'">'+escHtml(item.difficulty)+'</span>':'')+
           (item.videoUrl?'<span class="badge badge-purple">▶ 動画</span>':'')+
-          (item.read?'<span class="badge badge-green">✓ 既読</span>':'<span class="badge badge-gray">未読</span>')+
+          (isRead?'<span class="badge badge-green">✓ 既読</span>':'<span class="badge badge-gray">未読</span>')+
+          (views>0?'<span style="font-size:11px;color:#9ca3af">👁 '+views+'</span>':'')+
         '</div>'+
         '<div style="font-weight:600;font-size:14px;color:#1e40af;margin-bottom:4px">'+escHtml(item.title)+'</div>'+
         '<div style="font-size:12px;color:#9ca3af">'+escHtml(item.createdAt||'')+(item.minutes?' · ⏱ '+escHtml(String(item.minutes))+'分':'')+'</div>'+
@@ -7498,6 +7505,7 @@ function renderLearningModule(){
         '<option value="new"'+(ls.sort==='new'?' selected':'')+'>新着順</option>'+
         '<option value="unread"'+(ls.sort==='unread'?' selected':'')+'>未読優先</option>'+
         '<option value="cat"'+(ls.sort==='cat'?' selected':'')+'>カテゴリ順</option>'+
+        '<option value="views"'+(ls.sort==='views'?' selected':'')+'>閲覧数順</option>'+
       '</select>'+
     '</div>'+
     '<div class="filter-bar" style="margin-bottom:6px">'+catBtns+'</div>'+
@@ -7519,7 +7527,7 @@ function openLearningForm(){
 }
 
 function openLearningEditForm(id){
-  var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(!item)return;
+  var item=(_meoArticles||[]).find(function(x){return x.id===id;});if(!item)return;
   openModal('記事編集',
     '<div class="form-group"><label>タイトル</label><input type="text" id="lf-title" value="'+escHtml(item.title||'')+'"></div>'+
     '<div class="form-row"><div class="form-group"><label>カテゴリ</label><select id="lf-cat">'+
