@@ -2227,10 +2227,23 @@ function renderContract(){
     '</div>'+
     renewalTaskCardHtml+
     '<div class="two-panel">'+
-      '<div class="panel-left"><div class="panel-search"><input type="text" id="contract-search" placeholder="FL番号・会社名" oninput="renderContractList(this.value)"></div><div class="case-list" id="contract-case-list"></div></div>'+
+      '<div class="panel-left">'+
+        '<div class="panel-search" style="padding:10px 12px 0">'+
+          '<input type="text" id="contract-search" placeholder="FL番号・会社名" oninput="renderContractList(this.value)" style="margin-bottom:8px">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">'+
+            '<div id="contract-filters" style="display:flex;flex-wrap:wrap;gap:5px;flex:1">'+
+              renderContractFilterChips()+
+            '</div>'+
+            '<span id="contract-list-count" style="font-size:11px;color:#9ca3af;white-space:nowrap;margin-left:8px"></span>'+
+          '</div>'+
+          '<div style="height:1px;background:#f3f4f6;margin-bottom:2px"></div>'+
+        '</div>'+
+        '<div class="case-list" id="contract-case-list"></div>'+
+      '</div>'+
       '<div class="panel-right" id="contract-detail"><div class="empty-state" style="margin:auto;padding:48px"><div class="icon">📄</div><p>企業を選択してください</p></div></div>'+
     '</div>';
 
+  if(!state.contract.filter) state.contract.filter={status:'',flags:[]};
   renderContractList('');
   if(state.contract.selectedFL) showContractDetail(state.contract.selectedFL);
 
@@ -2262,6 +2275,52 @@ function renderContract(){
     });
   },50);
 }
+// フィルターチップUIを生成
+function renderContractFilterChips(){
+  var f=state.contract&&state.contract.filter||{status:'',flags:[]};
+  var statuses=['契約中','契約終了','解約','無償運用','仮登録'];
+  var chipStyle='font-size:11px;padding:3px 10px;border-radius:12px;border:1px solid #d1d5db;background:#f9fafb;cursor:pointer;white-space:nowrap;color:#374151';
+  var chipActive='font-size:11px;padding:3px 10px;border-radius:12px;border:1px solid #3b82f6;background:#eff6ff;cursor:pointer;white-space:nowrap;color:#1e40af;font-weight:600';
+  var html='';
+  statuses.forEach(function(s){
+    var isActive=f.status===s;
+    html+='<button style="'+(isActive?chipActive:chipStyle)+'" onclick="setContractFilter(\'status\',\''+s+'\')">'+s+'</button>';
+  });
+  html+='<span style="width:1px;height:18px;background:#e5e7eb;display:inline-block;margin:0 2px;vertical-align:middle"></span>';
+  var flags=[{key:'renewal',label:'📅 更新30日以内'},{key:'zerofee',label:'¥0 月額未設定'}];
+  flags.forEach(function(fl_){
+    var isOn=(f.flags||[]).indexOf(fl_.key)!==-1;
+    html+='<button style="'+(isOn?chipActive:chipStyle)+'" onclick="toggleContractFlag(\''+fl_.key+'\')">'+fl_.label+'</button>';
+  });
+  if(f.status||((f.flags||[]).length>0)){
+    html+='<button style="font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid #fca5a5;background:#fef2f2;cursor:pointer;color:#991b1b" onclick="clearContractFilter()">✕ リセット</button>';
+  }
+  return html;
+}
+function setContractFilter(key,val){
+  if(!state.contract.filter) state.contract.filter={status:'',flags:[]};
+  if(state.contract.filter[key]===val) state.contract.filter[key]='';
+  else state.contract.filter[key]=val;
+  _refreshContractFilters();
+}
+function toggleContractFlag(flag){
+  if(!state.contract.filter) state.contract.filter={status:'',flags:[]};
+  var idx=state.contract.filter.flags.indexOf(flag);
+  if(idx===-1) state.contract.filter.flags.push(flag);
+  else state.contract.filter.flags.splice(idx,1);
+  _refreshContractFilters();
+}
+function clearContractFilter(){
+  state.contract.filter={status:'',flags:[]};
+  _refreshContractFilters();
+}
+function _refreshContractFilters(){
+  var el=document.getElementById('contract-filters');
+  if(el) el.innerHTML=renderContractFilterChips();
+  var q=document.getElementById('contract-search');
+  renderContractList(q?q.value:'');
+}
+
 function openRenewalDetail(fl){
   state.contract.selectedFL=fl;
   state.contract.contractTab=1;
@@ -2274,11 +2333,43 @@ function openRenewalDetail(fl){
   if(detailEl)detailEl.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function renderContractList(q){
-  var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());});
+  var cf=(state.contract&&state.contract.filter)||{status:'',flags:[]};
+  var todayStr2=today();
+  var s0tmp=getStore();
+  var flcAllTmp=(s0tmp.contracts&&s0tmp.contracts.fl_contracts)||{};
+  var list=MASTER_CASES.filter(function(c){
+    // テキスト検索
+    if(q&&!c.fl.toLowerCase().includes(q.toLowerCase())&&!c.name.toLowerCase().includes(q.toLowerCase())) return false;
+    // ステータスフィルタ
+    if(cf.status&&c.status!==cf.status) return false;
+    // フラグフィルタ
+    var flags=cf.flags||[];
+    if(flags.indexOf('zerofee')!==-1){
+      if(!(c.status==='契約中'&&(!c.fee||Number(c.fee)===0))) return false;
+    }
+    if(flags.indexOf('renewal')!==-1){
+      // 次回更新日が今日から30日以内かチェック
+      var fd2=flcAllTmp[c.fl]||null;
+      var nrd='';
+      if(fd2){var rd2=fd2.renewal_dates||[];nrd=rd2[fd2.renewal_count||0]||fd2.last_billing_date||'';}
+      if(!nrd&&c.start&&c.status==='契約中'){
+        var sd2=new Date(c.start.replace(/\//g,'-')+'T00:00:00');sd2.setFullYear(sd2.getFullYear()+1);
+        nrd=sd2.getFullYear()+'-'+(sd2.getMonth()<9?'0':'')+String(sd2.getMonth()+1)+'-'+String(sd2.getDate()).padStart(2,'0');
+      }
+      if(!nrd) return false;
+      var dd2=daysUntilDate(nrd.length===7?nrd+'-01':nrd);
+      if(dd2===null||dd2>30) return false;
+    }
+    return true;
+  });
   var s0=getStore();
   var flcAll=(s0.contracts&&s0.contracts.fl_contracts)||{};
   var todayStr=today();
-  document.getElementById('contract-case-list').innerHTML=list.map(function(c){
+  var countEl=document.getElementById('contract-list-count');
+  if(countEl) countEl.textContent=list.length+'件';
+  document.getElementById('contract-case-list').innerHTML=(list.length===0
+    ?'<div style="padding:24px;text-align:center;color:#9ca3af;font-size:13px">条件に該当する案件がありません</div>'
+    :'')+list.map(function(c){
     var alertDays=getCompanyAlertDays(c.fl);
     var alertBadge=cancelAlertBadge(alertDays);
     var cpBadge=complaintBadge(c.fl);
