@@ -34,6 +34,8 @@ nav{flex:1;padding:8px 0}
 .kpi-label{font-size:12px;color:#6b7280;font-weight:500;margin-bottom:6px}
 .kpi-value{font-size:28px;font-weight:700;color:#1f2937}
 .kpi-sub{font-size:12px;color:#9ca3af;margin-top:4px}
+.kpi-action{font-size:11px;color:#3b82f6;margin-top:10px;border-top:1px solid #f3f4f6;padding-top:8px;font-weight:500}
+.kpi-card:hover .kpi-action{text-decoration:underline}
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{background:#f9fafb;border-bottom:2px solid #e5e7eb;padding:10px 12px;text-align:left;font-weight:600;color:#374151;white-space:nowrap}
@@ -339,6 +341,29 @@ function saveStore(data) {
 
 // ---- MASTER_CASES 保存 ----
 async function saveMasterCases() {
+  // 楽観的ロック: 別タブが後から保存していないか確認
+  try {
+    var ver = JSON.parse(localStorage.getItem('funlink_cases_version') || 'null');
+    if (ver && ver.tab !== _casesTabId && _casesLoadedAt && ver.ts > _casesLoadedAt) {
+      var proceed = confirm(
+        '⚠️ 別のタブで案件データが更新されています（' +
+        new Date(ver.ts).toLocaleTimeString('ja-JP') + '更新）。\n' +
+        'このまま保存すると他タブの変更が上書きされます。\n\n続行しますか？'
+      );
+      if (!proceed) return;
+    }
+  } catch(e) {}
+
+  // statusバリデーション（不正値を警告）
+  var invalidCases = MASTER_CASES.filter(function(c){
+    return c.status && CASE_STATUS_VALUES.indexOf(c.status) === -1;
+  });
+  if (invalidCases.length) {
+    var names = invalidCases.slice(0, 5).map(function(c){ return c.fl + '(' + c.status + ')'; }).join(', ');
+    console.warn('[saveMasterCases] 不正なstatus:', names);
+    toast('⚠️ 不正なstatus値の案件があります: ' + names, true);
+  }
+
   var saveData = { master: MASTER_CASES };
   if (UNMATCHED_CASES && UNMATCHED_CASES.length) saveData.unmatched = UNMATCHED_CASES;
   if (TENPO_SEARCH && TENPO_SEARCH.length) saveData.tenpo = TENPO_SEARCH;
@@ -346,6 +371,42 @@ async function saveMasterCases() {
   if (!ok) throw new Error('Drive への保存に失敗しました（GAS URLを確認してください）');
   // ローカルキャッシュも更新
   try { localStorage.setItem('funlink_cases_cache', JSON.stringify(saveData)); } catch(e) {}
+  // バージョン情報を更新（楽観的ロック用）
+  try { localStorage.setItem('funlink_cases_version', JSON.stringify({ ts: Date.now(), tab: _casesTabId })); } catch(e) {}
+  // master_stores デュアルライト（テーブル存在時のみ・エラーは非致命的）
+  syncMasterStoresToSupabase().catch(function(e){ console.warn('[master_stores sync]', e); });
+}
+
+// master_stores テーブルへの非同期同期（stores[]正規化後に有効化）
+async function syncMasterStoresToSupabase() {
+  if (!_sb) return;
+  var rows = [];
+  MASTER_CASES.forEach(function(c) {
+    (c.stores || []).forEach(function(s) {
+      rows.push({
+        fl:         c.fl,
+        store_id:   s.store_id || null,
+        sname:      s.sname || '',
+        addr:       s.addr || null,
+        tel:        s.tel || null,
+        plan:       s.plan || null,
+        gbp_id:     s.gbp_id || null,
+        gbp_status: s.gbp_status || null,
+        meo:        s.meo || null
+      });
+    });
+  });
+  if (!rows.length) return;
+  // upsert: store_id がある行は更新、ない行は insert のみ
+  var withId    = rows.filter(function(r){ return r.store_id; });
+  var withoutId = rows.filter(function(r){ return !r.store_id; });
+  if (withId.length) {
+    await _sb.from('master_stores').upsert(withId, { onConflict: 'store_id' });
+  }
+  if (withoutId.length) {
+    // store_id なし: fl+sname で重複を避けるため insert ignore
+    await _sb.from('master_stores').insert(withoutId).select().maybeSingle();
+  }
 }
 
 // ---- FL番号自動採番 ----
@@ -457,6 +518,7 @@ async function initAppFromDrive() {
     MASTER_CASES = casesData.master || [];
     UNMATCHED_CASES = casesData.unmatched || [];
     TENPO_SEARCH = casesData.tenpo || [];
+    _casesLoadedAt = Date.now(); // 楽観的ロック: ロード時刻記録
   } else {
     console.info('[Drive] cases 未存在 → Supabaseから移行中...');
     var casesRes = await _sb.from('cms_store').select('data').eq('id','cases').single();
@@ -465,6 +527,7 @@ async function initAppFromDrive() {
       MASTER_CASES = casesRes.data.data.master || [];
       UNMATCHED_CASES = casesRes.data.data.unmatched || [];
       TENPO_SEARCH = casesRes.data.data.tenpo || [];
+      _casesLoadedAt = Date.now(); // 楽観的ロック: ロード時刻記録
       drivePost('cases', casesRes.data.data); // Drive に初回保存
       toast('MASTER_CASES を Google Drive に移行しました');
     }
@@ -511,6 +574,7 @@ async function initAppFromSupabase() {
     MASTER_CASES = casesRes.data.data.master || [];
     UNMATCHED_CASES = casesRes.data.data.unmatched || [];
     TENPO_SEARCH = casesRes.data.data.tenpo || [];
+    _casesLoadedAt = Date.now(); // 楽観的ロック: ロード時刻記録
   }
   _storeCache = (storeRes.data && storeRes.data.data) ? storeRes.data.data : {};
   _reviewKpi = (reviewRes.data && reviewRes.data.data) ? reviewRes.data.data : { by_fl:{}, by_store:{} };
@@ -639,6 +703,13 @@ async function initAppFromSupabase() {
 let MASTER_CASES = [];
 let UNMATCHED_CASES = [];
 let TENPO_SEARCH = [];
+
+// 楽観的ロック用: ロード時刻 & タブ識別子
+var _casesLoadedAt = null;
+var _casesTabId = 'tab_' + Math.random().toString(36).substr(2, 9);
+
+// status の有効値定数（DBレベルのENUM相当）
+var CASE_STATUS_VALUES = ['契約中', '契約終了', '無償運用', '提案中', '休眠'];
 
 // クチコミKPIキャッシュ（Supabase cms_store id=review_kpi）
 var _reviewKpi = { by_fl: {}, by_store: {} };
@@ -1085,6 +1156,10 @@ modules.dashboard = function() {
       else if (info.unread > 0) lineUnread++;
     });
   }
+  // 月額¥0/未設定の契約中案件（MRR集計誤りリスク）
+  // 算出式: MASTER_CASESのstatus==='契約中' && (!fee || fee===0) のカウント
+  var zeroFeeContracts = contracted.filter(function(c){ return !c.fee || Number(c.fee) === 0; });
+
   // チャーンスコア上位（危険ライン：スコア50以上を要注意として表示、最大8件）
   var churnList = contracted.map(function(c){
     var r = calcChurnScore(c.fl, todayStr, s);
@@ -1120,6 +1195,8 @@ modules.dashboard = function() {
   if (overdueTasks.length > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'task\')"><span style="font-size:16px">⏰</span><div><div style="font-weight:700;font-size:13px;color:#92400e">期限切れタスク '+overdueTasks.length+' 件</div><div style="font-size:11px;color:#d97706">タスク管理で確認・更新してください</div></div></div>');
   if (unpaidAll.length > 0 && invoices.length) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'payment\')"><span style="font-size:16px">💴</span><div><div style="font-weight:700;font-size:13px;color:#92400e">未収 '+unpaidAll.length+' 件 — '+fmtMoney(unpaidAmt)+'</div><div style="font-size:11px;color:#d97706">支払い管理で確認してください</div></div></div>');
   if (lineUnread > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f5f3ff;border-left:3px solid #7c3aed;border-radius:0 6px 6px 0;cursor:pointer" onclick="state.line.listFilter=\'unread\';loadModule(\'line\')"><span style="font-size:16px">💬</span><div><div style="font-weight:700;font-size:13px;color:#5b21b6">LINE未返信 '+lineUnread+' 件</div><div style="font-size:11px;color:#7c3aed">LINE対応 → 未読タブで確認</div></div></div>');
+  // 月額¥0バッジ: 契約中なのにfeeが0またはnullの案件 → MRR集計が過小評価になるリスク
+  if (zeroFeeContracts.length > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #ea580c;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'contract\')"><span style="font-size:16px">🧾</span><div><div style="font-weight:700;font-size:13px;color:#9a3412">月額未設定（¥0） '+zeroFeeContracts.length+' 件 — MRRが過小評価されています</div><div style="font-size:11px;color:#ea580c">契約管理 → 各社の月額フィールドを確認・修正してください</div></div></div>');
 
   var alertHtml = alerts.length ?
     '<div class="card" style="margin-bottom:16px;border:1px solid #fecaca"><div class="card-title" style="color:#991b1b">⚠️ 要対応アラート（' + alerts.length + '件） <span style="font-size:11px;font-weight:400;color:#9ca3af">— 「静かな画面 = 問題なし」。このカードが空なら全て順調です。</span></div><div style="display:flex;flex-direction:column;gap:8px">' + alerts.join('') + '</div></div>' :
@@ -1138,19 +1215,50 @@ modules.dashboard = function() {
   document.getElementById('content').innerHTML =
     alertHtml +
     '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">' +
-    '<div class="kpi-card"><div class="kpi-label">契約中件数</div><div class="kpi-value">' + contracted.length + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">全' + MASTER_CASES.length + '社中</div></div>' +
-    '<div class="kpi-card '+(invoices.length?'green':'yellow')+'"><div class="kpi-label">MRR <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;'+(invoices.length?'background:#d1fae5;color:#065f46':'background:#fef3c7;color:#92400e')+'">'+(invoices.length?'確定':'概算')+'</span></div><div class="kpi-value" style="font-size:22px">' + fmtMoney(mrr) + '</div><div class="kpi-sub">'+ym+(invoices.length?'':" — 請求ロボ未取込")+'</div></div>' +
-    '<div class="kpi-card red"><div class="kpi-label">未収合計</div><div class="kpi-value" style="font-size:20px">'+(invoices.length?fmtMoney(unpaidAmt):'-')+'</div><div class="kpi-sub">'+(invoices.length?unpaidAll.length+'件':'請求ロボ未取込')+'</div></div>' +
-    '<div class="kpi-card yellow"><div class="kpi-label">未完了タスク数</div><div class="kpi-value">' + openTasks + '<span style="font-size:14px;color:#6b7280"> 件</span></div><div class="kpi-sub">'+(overdueTasks.length?'期限切れ'+overdueTasks.length+'件含む':'全担当者合計')+'</div></div>' +
+    // 契約中件数 → 案件マスタへ
+    '<div class="kpi-card" style="cursor:pointer" onclick="loadModule(\'master\')">' +
+    '<div class="kpi-label">契約中件数</div>' +
+    '<div class="kpi-value">' + contracted.length + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
+    '<div class="kpi-sub">全' + MASTER_CASES.length + '社中</div>' +
+    '<div class="kpi-action">→ 案件マスタを開く</div></div>' +
+    // MRR → 支払い管理へ
+    '<div class="kpi-card '+(invoices.length?'green':'yellow')+'" style="cursor:pointer" onclick="loadModule(\'payment\')">' +
+    '<div class="kpi-label">MRR <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;'+(invoices.length?'background:#d1fae5;color:#065f46':'background:#fef3c7;color:#92400e')+'">'+(invoices.length?'確定':'概算')+'</span></div>' +
+    '<div class="kpi-value" style="font-size:22px">' + fmtMoney(mrr) + '</div>' +
+    '<div class="kpi-sub">'+ym+(invoices.length?'':" — 請求ロボ未取込")+'</div>' +
+    '<div class="kpi-action">→ 支払い管理を開く</div></div>' +
+    // 未収合計 → 支払い管理（未収タブ）へ
+    '<div class="kpi-card red" style="cursor:pointer" onclick="loadModule(\'payment\');state.payment.tab=1">' +
+    '<div class="kpi-label">未収合計</div>' +
+    '<div class="kpi-value" style="font-size:20px">'+(invoices.length?fmtMoney(unpaidAmt):'-')+'</div>' +
+    '<div class="kpi-sub">'+(invoices.length?unpaidAll.length+'件':'請求ロボ未取込')+'</div>' +
+    '<div class="kpi-action">→ 未収一覧へ</div></div>' +
+    // 未完了タスク → タスク管理へ
+    '<div class="kpi-card yellow" style="cursor:pointer" onclick="loadModule(\'task\')">' +
+    '<div class="kpi-label">未完了タスク数</div>' +
+    '<div class="kpi-value">' + openTasks + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
+    '<div class="kpi-sub">'+(overdueTasks.length?'期限切れ'+overdueTasks.length+'件含む':'全担当者合計')+'</div>' +
+    '<div class="kpi-action">→ タスク管理を開く</div></div>' +
+    // LINE未対応 → LINE対応へ
     '<div class="kpi-card purple" style="cursor:pointer" onclick="state.line.listFilter=\'unread\';loadModule(\'line\')">' +
     '<div class="kpi-label">LINE未対応</div>' +
     '<div class="kpi-value" id="kpi-line-val">' + (_lmSummary ? lineUnread+lineClam : '…') + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
-    '<div class="kpi-sub" id="kpi-line-sub">' + (_lmSummary ? (lineClam?'クレーム'+lineClam+'件含む':'対応待ち') : '読み込み中...') + '</div></div>' +
+    '<div class="kpi-sub" id="kpi-line-sub">' + (_lmSummary ? (lineClam?'クレーム'+lineClam+'件含む':'対応待ち') : '読み込み中...') + '</div>' +
+    '<div class="kpi-action">→ LINE対応を開く</div></div>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">' +
-    // チャーンスコア
-    '<div class="card"><div class="card-title">解約リスク — チャーンスコア上位 <span style="font-size:11px;font-weight:400;color:#9ca3af">（スコア = 接触空白×0.5 + 未タスク×10 + クチコミ停止月×15）</span></div>' +
-    (churnRows ? '<div class="table-wrap"><table><thead><tr><th>FL</th><th>会社名</th><th style="text-align:right">スコア</th><th>主な要因</th></tr></thead><tbody>' + churnRows + '</tbody></table></div><div style="font-size:11px;color:#9ca3af;margin-top:8px">⚠️スコア50以上を表示。クリックで詳細へ。</div>' :
+    // チャーンスコア（スコア = 接触空白×0.5 + 未タスク×10 + クチコミ停止月×15）
+    '<div class="card"><div class="card-title">解約リスク — チャーンスコア上位' +
+    '<span style="float:right;display:flex;gap:6px">' +
+    (localStorage.getItem('funlink_slack_webhook') ? '<button style="font-size:11px;padding:2px 8px;border:1px solid #10b981;border-radius:4px;background:#f0fdf4;cursor:pointer;color:#065f46;font-weight:600" onclick="sendChurnAlertToSlack()">📢 Slackへ送信</button>' : '') +
+    '<button style="font-size:11px;padding:2px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;color:#6b7280" onclick="openModal(\'チャーンスコア 算式\',\'<p style=\\"margin-bottom:10px\\">スコアは以下の3要因の合算です：</p><table style=\\"width:100%;border-collapse:collapse;font-size:13px\\"><thead><tr style=\\"background:#f9fafb\\"><th style=\\"padding:8px;border:1px solid #e5e7eb;text-align:left\\">要因</th><th style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">重み</th></tr></thead><tbody><tr><td style=\\"padding:8px;border:1px solid #e5e7eb\\">① 最終接触からの経過日数（MTG・サポート）</td><td style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">× 0.5</td></tr><tr><td style=\\"padding:8px;border:1px solid #e5e7eb\\">② 未解決タスク件数</td><td style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">× 10</td></tr><tr><td style=\\"padding:8px;border:1px solid #e5e7eb\\">③ クチコミ停止月数</td><td style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">× 15</td></tr></tbody></table><div style=\\"margin-top:12px;padding:10px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;color:#92400e\\">⚠️ <b>係数は感覚値（未校正）</b><br>実際の解約データと照合し、係数の妥当性を検証することを推奨します。</div>\',\'\')">算式を見る</button>' +
+    '</span>' +
+    '</div>' +
+    '<div style="padding:8px 12px;background:#fef9ec;border:1px solid #fde68a;border-radius:6px;margin-bottom:12px;font-size:12px;color:#92400e;display:flex;align-items:center;gap:8px">' +
+    '<span style="font-size:14px">⚠️</span>' +
+    '<span><b>係数は未校正です。</b>過去の解約案件とスコアの相関を確認し、実データで校正することを推奨します。スコアが実態と乖離している場合はアラートを無視しがちになります。</span>' +
+    '</div>' +
+    (churnRows ? '<div class="table-wrap"><table><thead><tr><th>FL</th><th>会社名</th><th style="text-align:right">スコア</th><th>主な要因</th></tr></thead><tbody>' + churnRows + '</tbody></table></div><div style="font-size:11px;color:#9ca3af;margin-top:8px">スコア50以上を表示。クリックで詳細へ。</div>' :
     '<div class="empty-state"><div class="icon">🎯</div><p>スコア50以上の案件なし — 接触状況は良好です</p></div>') +
     '</div>' +
     // タスク
@@ -1316,6 +1424,69 @@ var masterSortAsc = true;
 
 modules.master = function() { renderMaster(); };
 
+// ---- データ品質監査 ----
+function openDataQualityAudit() {
+  var issues = [];
+
+  MASTER_CASES.forEach(function(c) {
+    var fl = c.fl || '(FL不明)';
+    if (!c.fl)     issues.push({ fl: fl, type: 'FLコード欠損', sev: 'high' });
+    if (!c.name)   issues.push({ fl: fl, type: '会社名欠損', sev: 'high' });
+    if (!c.status) issues.push({ fl: fl, type: 'ステータス欠損', sev: 'high' });
+    else if (CASE_STATUS_VALUES.indexOf(c.status) === -1)
+                   issues.push({ fl: fl, type: '不正ステータス: ' + escHtml(c.status), sev: 'high' });
+    if (c.status === '契約中' && !c.fee)
+                   issues.push({ fl: fl, type: '月額未設定（契約中）', sev: 'medium' });
+    if (c.status === '契約中' && !c.start)
+                   issues.push({ fl: fl, type: '開始日未設定（契約中）', sev: 'medium' });
+    if (!c.cemail && !c.ctel)
+                   issues.push({ fl: fl, type: '連絡先なし（メール・電話ともに未設定）', sev: 'medium' });
+    if (!c.stores || c.stores.length === 0)
+                   issues.push({ fl: fl, type: '店舗情報なし', sev: 'low' });
+  });
+
+  var high   = issues.filter(function(i){ return i.sev === 'high'; });
+  var medium = issues.filter(function(i){ return i.sev === 'medium'; });
+  var low    = issues.filter(function(i){ return i.sev === 'low'; });
+
+  function issueRows(arr, color) {
+    if (!arr.length) return '<tr><td colspan="2" style="color:#9ca3af;padding:6px 12px;font-size:12px">なし</td></tr>';
+    return arr.map(function(i){
+      return '<tr style="border-bottom:1px solid #f3f4f6">' +
+        '<td style="padding:6px 12px;font-weight:600;color:#2563eb;white-space:nowrap;font-size:12px">' + escHtml(i.fl) + '</td>' +
+        '<td style="padding:6px 12px;color:' + color + ';font-size:12px">' + i.type + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  var body =
+    '<div style="margin-bottom:16px;display:flex;gap:16px;flex-wrap:wrap">' +
+    '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 20px;text-align:center;min-width:80px">' +
+      '<div style="font-size:22px;font-weight:700;color:#dc2626">' + high.length + '</div>' +
+      '<div style="font-size:11px;color:#ef4444">高リスク</div></div>' +
+    '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 20px;text-align:center;min-width:80px">' +
+      '<div style="font-size:22px;font-weight:700;color:#d97706">' + medium.length + '</div>' +
+      '<div style="font-size:11px;color:#f59e0b">中リスク</div></div>' +
+    '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 20px;text-align:center;min-width:80px">' +
+      '<div style="font-size:22px;font-weight:700;color:#059669">' + low.length + '</div>' +
+      '<div style="font-size:11px;color:#10b981">低リスク</div></div>' +
+    '<div style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:12px 20px;text-align:center;min-width:80px">' +
+      '<div style="font-size:22px;font-weight:700;color:#374151">' + MASTER_CASES.length + '</div>' +
+      '<div style="font-size:11px;color:#6b7280">総案件数</div></div>' +
+    '</div>' +
+    (issues.length === 0 ? '<div style="text-align:center;padding:32px;color:#059669;font-weight:600">✅ データ品質の問題は見つかりませんでした</div>' :
+    '<table style="width:100%;border-collapse:collapse">' +
+      '<thead><tr style="background:#fef2f2"><th colspan="2" style="padding:8px 12px;text-align:left;font-size:12px;color:#dc2626">🔴 高リスク（' + high.length + '件）</th></tr></thead>' +
+      '<tbody>' + issueRows(high, '#dc2626') + '</tbody>' +
+      '<thead><tr style="background:#fffbeb"><th colspan="2" style="padding:8px 12px;text-align:left;font-size:12px;color:#d97706">🟡 中リスク（' + medium.length + '件）</th></tr></thead>' +
+      '<tbody>' + issueRows(medium, '#d97706') + '</tbody>' +
+      '<thead><tr style="background:#f0fdf4"><th colspan="2" style="padding:8px 12px;text-align:left;font-size:12px;color:#059669">🟢 低リスク（' + low.length + '件）</th></tr></thead>' +
+      '<tbody>' + issueRows(low, '#374151') + '</tbody>' +
+    '</table>');
+
+  openModal('データ品質監査 — ' + MASTER_CASES.length + '社', body, '', 'modal-lg');
+}
+
 function renderMaster() {
   var pg_s = state.master;
   masterFiltered = MASTER_CASES.filter(function(c){
@@ -1386,11 +1557,11 @@ function renderMaster() {
     '<input type="text" placeholder="FL番号・会社名・担当者・電話・メールで検索" value="' + escHtml(pg_s.search) + '" oninput="state.master.search=this.value;renderMaster()" style="width:300px">' +
     '<select onchange="state.master.statusFilter=this.value;renderMaster()" style="font-size:12px">' +
     '<option value="全て"' + (pg_s.statusFilter==='全て'?' selected':'') + '>全ステータス</option>' +
-    '<option value="契約中"' + (pg_s.statusFilter==='契約中'?' selected':'') + '>契約中</option>' +
-    '<option value="契約終了"' + (pg_s.statusFilter==='契約終了'?' selected':'') + '>契約終了</option>' +
+    CASE_STATUS_VALUES.map(function(v){ return '<option value="' + escHtml(v) + '"' + (pg_s.statusFilter===v?' selected':'') + '>' + escHtml(v) + '</option>'; }).join('') +
     '</select>' +
     '<span style="font-size:12px;color:#9ca3af">' + masterFiltered.length + ' 件</span>' +
-    '<div style="margin-left:auto">' +
+    '<div style="margin-left:auto;display:flex;gap:8px">' +
+    '<button class="btn btn-secondary btn-sm" onclick="openDataQualityAudit()" title="データ品質チェック">🔍 品質監査</button>' +
     '<button class="btn btn-primary btn-sm" onclick="openCaseAddForm()">＋ 案件追加</button>' +
     '</div>' +
     '</div>' +
@@ -2106,11 +2277,45 @@ function renderContractList(q){
   var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());});
   var s0=getStore();
   var flcAll=(s0.contracts&&s0.contracts.fl_contracts)||{};
+  var todayStr=today();
   document.getElementById('contract-case-list').innerHTML=list.map(function(c){
     var alertDays=getCompanyAlertDays(c.fl);
     var alertBadge=cancelAlertBadge(alertDays);
     var cpBadge=complaintBadge(c.fl);
     var fd=flcAll[c.fl]||null;
+
+    // 更新リマインダーバッジ（次回更新日が30日以内）
+    // 算出式: fl_contracts同期済みの場合はrenewal_dates[renewal_count]を使用。
+    //         未同期の場合はstart+12ヶ月を初回更新日として推定。
+    var renewalBadge='';
+    if(!alertBadge){
+      var nextRenewalDate='';
+      if(fd){
+        var rDates=fd.renewal_dates||[];
+        var rCount=fd.renewal_count||0;
+        nextRenewalDate=rDates[rCount]||fd.last_billing_date||'';
+      }
+      if(!nextRenewalDate&&c.start&&c.status==='契約中'){
+        var sD=new Date(c.start.replace(/\//g,'-')+'T00:00:00');
+        sD.setFullYear(sD.getFullYear()+1);
+        nextRenewalDate=sD.getFullYear()+'-'+(sD.getMonth()<9?'0':'')+String(sD.getMonth()+1)+'-'+String(sD.getDate()).padStart(2,'0');
+      }
+      if(nextRenewalDate){
+        var rdDays=daysUntilDate(nextRenewalDate.length===7?nextRenewalDate+'-01':nextRenewalDate);
+        if(rdDays!==null&&rdDays<=30){
+          renewalBadge=rdDays<=0
+            ?'<span style="font-size:10px;background:#fef2f2;color:#991b1b;padding:1px 5px;border-radius:10px;font-weight:600;border:1px solid #fecaca">📅 更新期限超過</span>'
+            :'<span style="font-size:10px;background:#fffbeb;color:#92400e;padding:1px 5px;border-radius:10px;font-weight:600;border:1px solid #fde68a">📅 更新'+rdDays+'日前</span>';
+        }
+      }
+    }
+
+    // 月額¥0/未設定バッジ（契約中のみ）: MRR集計の誤りを防ぐため要確認扱い
+    var zeroFeeBadge='';
+    if(c.status==='契約中'&&(!c.fee||Number(c.fee)===0)){
+      zeroFeeBadge='<span style="font-size:10px;background:#fff7ed;color:#9a3412;padding:1px 5px;border-radius:10px;font-weight:600;border:1px solid #fed7aa">¥0 月額未設定</span>';
+    }
+
     var syncBadge='';
     if(fd){
       var cst=fd.contract_status||'';
@@ -2126,6 +2331,8 @@ function renderContractList(q){
         (prog?'<span style="font-size:10px;padding:1px 5px;border-radius:10px;background:'+progBg+';color:'+progText+'">'+escHtml(prog)+'</span>':'')+
       '</div>';
     }
+    var extraBadges=(renewalBadge||zeroFeeBadge)
+      ?'<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap">'+renewalBadge+zeroFeeBadge+'</div>':'';
     return '<div class="case-item '+(state.contract.selectedFL===c.fl?'active':'')+'" onclick="state.contract.selectedFL=\''+escHtml(c.fl)+'\';showContractDetail(\''+escHtml(c.fl)+'\');renderContractList(document.getElementById(\'contract-search\').value)">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
         '<div class="fl">'+escHtml(c.fl)+'</div>'+
@@ -2133,6 +2340,7 @@ function renderContractList(q){
       '</div>'+
       '<div class="name">'+escHtml(c.name)+'</div>'+
       syncBadge+
+      extraBadges+
       (cpBadge?'<div style="margin-top:3px">'+cpBadge+'</div>':'')+
     '</div>';
   }).join('');
@@ -7980,6 +8188,28 @@ function renderSettings() {
           : '<div style="margin-top:8px;font-size:12px;color:#9ca3af">未設定 — LINE対応でAI返信生成が使えません</div>')+
       '</div>'+
 
+      // Slack Webhook通知設定
+      '<div style="padding-top:20px;border-top:1px solid #f3f4f6;margin-bottom:28px">'+
+        '<div style="font-size:14px;font-weight:700;color:#1f2937;margin-bottom:4px">🔔 Slack通知設定（チャーンアラート）</div>'+
+        '<div style="font-size:12px;color:#6b7280;margin-bottom:12px">'+
+          'チャーンスコアが高い案件を毎朝9時にSlackへ自動送信します。'+
+          '<a href="https://api.slack.com/messaging/webhooks" target="_blank" style="color:#4F46E5;margin-left:4px">Incoming Webhooks</a>'+
+          ' でURLを取得してください。'+
+        '</div>'+
+        '<div style="display:flex;gap:8px;align-items:stretch">'+
+          '<input type="text" id="slack-webhook-input" value="'+escHtml(localStorage.getItem('funlink_slack_webhook')||'')+'"'+
+            ' placeholder="https://hooks.slack.com/services/..." style="flex:1;padding:9px 12px;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;font-family:monospace">'+
+          '<button class="btn btn-primary" onclick="saveSlackWebhook()">保存</button>'+
+          '<button class="btn btn-secondary" onclick="testSlackWebhook()">テスト送信</button>'+
+        '</div>'+
+        (localStorage.getItem('funlink_slack_webhook')
+          ? '<div style="margin-top:8px;font-size:12px;color:#059669;font-weight:600">✅ Webhook URL設定済み — ダッシュボードから手動送信も可能です</div>'
+          : '<div style="margin-top:8px;font-size:12px;color:#9ca3af">未設定 — URLを設定するとダッシュボードのチャーンアラートをSlackへ送信できます</div>')+
+        '<div style="margin-top:10px;padding:8px 12px;background:#f8faff;border:1px solid #e0e7ff;border-radius:6px;font-size:12px;color:#4b5563">'+
+          '<b>送信内容：</b>チャーンスコア50以上の案件一覧（社名・スコア・主な要因）を毎朝9時に自動送信（自動送信にはGASのcronまたはSupabase Edge Functionが別途必要です）'+
+        '</div>'+
+      '</div>'+
+
       // GASデプロイ手順
       '<div style="padding-top:20px;border-top:1px solid #f3f4f6">'+
         '<div style="font-size:13px;font-weight:700;color:#1f2937;margin-bottom:8px">📋 GASデプロイ手順</div>'+
@@ -8078,6 +8308,66 @@ async function resetUserPassword(email) {
       '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>');
   } else {
     toast('リセットメールを送信しました');
+  }
+}
+
+// ── Slack Webhook 通知 ──
+function saveSlackWebhook() {
+  var url = (document.getElementById('slack-webhook-input').value || '').trim();
+  if (url && !url.startsWith('https://hooks.slack.com/')) {
+    toast('Slack Webhook URLの形式が正しくありません', true); return;
+  }
+  localStorage.setItem('funlink_slack_webhook', url);
+  toast(url ? 'Slack Webhook URLを保存しました' : 'Webhook URLを削除しました');
+  renderSettings();
+}
+
+async function testSlackWebhook() {
+  var url = (document.getElementById('slack-webhook-input').value || '').trim();
+  if (!url) { toast('Webhook URLを入力してください', true); return; }
+  var btn = event.target; btn.disabled = true; btn.textContent = '送信中...';
+  var ok = await sendSlackMessage(url, '*[テスト]* FunLink CMS からの接続テストです ✅');
+  btn.disabled = false; btn.textContent = 'テスト送信';
+  toast(ok ? 'Slackへのテスト送信が完了しました ✅' : 'Slack送信に失敗しました', !ok);
+}
+
+// チャーンスコア上位案件をSlackへ送信（ダッシュボードのボタンから呼び出し）
+async function sendChurnAlertToSlack() {
+  var webhookUrl = localStorage.getItem('funlink_slack_webhook');
+  if (!webhookUrl) { toast('設定画面でSlack Webhook URLを登録してください', true); return; }
+  var todayStr = today();
+  var s = getStore();
+  var contracted = MASTER_CASES.filter(function(c){ return c.status === '契約中'; });
+  var highRisk = contracted.map(function(c){
+    var r = calcChurnScore(c.fl, todayStr, s);
+    return { fl:c.fl, name:c.name, score:r.score, reasons:r.reasons };
+  }).filter(function(x){ return x.score >= 50; })
+    .sort(function(a,b){ return b.score-a.score; }).slice(0,10);
+
+  if (!highRisk.length) {
+    toast('スコア50以上の案件がないため通知不要です'); return;
+  }
+  var lines = highRisk.map(function(x){
+    var level = x.score >= 100 ? '🔴' : x.score >= 70 ? '🟡' : '🟠';
+    return level + ' *' + x.name + '* （' + x.fl + '） スコア:' + x.score + ' — ' + x.reasons.join('・');
+  });
+  var text = '*[FunLink CMS] チャーンリスクアラート ' + todayStr + '*\n' +
+    'スコア50以上の案件が *' + highRisk.length + '件* あります。\n\n' +
+    lines.join('\n');
+  var ok = await sendSlackMessage(webhookUrl, text);
+  toast(ok ? 'Slackへチャーンアラートを送信しました ✅' : 'Slack送信に失敗しました', !ok);
+}
+
+async function sendSlackMessage(webhookUrl, text) {
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text })
+    });
+    return true;
+  } catch(e) {
+    return false;
   }
 }
 
