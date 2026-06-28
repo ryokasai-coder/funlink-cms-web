@@ -217,6 +217,28 @@ function logAudit(action, targetType, targetId, targetName, detail) {
   });
 }
 
+// 期限切れタスクのブラウザ通知（セッション1回のみ）
+function checkOverdueNotification() {
+  if (!('Notification' in window)) return;
+  if (sessionStorage.getItem('funlink_notif_shown')) return;
+  var tasks = tvGetTasks ? tvGetTasks() : [];
+  var todayStr = new Date().toISOString().slice(0,10);
+  var overdue = tasks.filter(function(t){ return t.status!=='done'&&t.status!=='完了'&&t.due_date&&t.due_date<todayStr; });
+  if (!overdue.length) return;
+  function showIt() {
+    sessionStorage.setItem('funlink_notif_shown','1');
+    new Notification('FunLink CMS — 期限切れタスクあり', {
+      body: overdue.length + '件のタスクが期限を超えています。確認してください。',
+      icon: ''
+    });
+  }
+  if (Notification.permission === 'granted') {
+    showIt();
+  } else if (Notification.permission === 'default') {
+    Notification.requestPermission().then(function(p){ if(p==='granted') showIt(); });
+  }
+}
+
 var _storeCache = null;
 var _lastSaveTime = null;        // 最終保存成功日時
 var _saveFailCount = 0;          // 連続失敗回数
@@ -362,6 +384,7 @@ async function initApp() {
     localStorage.setItem('funlink_login_count', loginCount);
     loadModule('dashboard');
     if (loginCount === 1) setTimeout(showOnboarding, 800);
+    setTimeout(checkOverdueNotification, 2000);
   } catch(e) {
     var errMsg = e.message || '不明なエラー';
     // エラーメッセージを日本語化
@@ -978,7 +1001,7 @@ var state = {
   meeting: { selectedFL: null },
   task: { tab: 0, catFilter: '全て', assigneeFilter: '', statusFilter: '全て', calYear: new Date().getFullYear(), calMonth: new Date().getMonth() },
   proposal: { selectedFL: null },
-  support: { selectedFL: null },
+  support: { selectedFL: null, filter: {cat:'', res:''} },
   payment: { tab:0, statusFilter:'全て', ymFilter:'', fromYm:'', toYm:'', msFrom:'', msTo:'' },
   contractReport: { fy:null, staff:'全て' },
   learning: { catFilter: '全て', diffFilter: '全て', search: '', sort: 'new', viewId: null }
@@ -1067,6 +1090,28 @@ modules.dashboard = function() {
   }).filter(function(x){ return x.score >= 50; })
     .sort(function(a,b){ return b.score-a.score; }).slice(0,8);
 
+  // 担当者別KPI（cs_staff フィールドで集計）
+  var staffMap = {};
+  contracted.forEach(function(c) {
+    var staff = c.cs_staff || '未設定';
+    if (!staffMap[staff]) staffMap[staff] = { count:0, mrr:0, tasks:0 };
+    staffMap[staff].count++;
+    staffMap[staff].mrr += c.fee||0;
+  });
+  // 担当者別の未完了タスク数を集計
+  allTasks.filter(function(t){ return t.status!=='done'&&t.status!=='完了'; }).forEach(function(t) {
+    var c = MASTER_CASES.find(function(x){ return x.fl===t.fl; });
+    if (c) {
+      var staff = c.cs_staff || '未設定';
+      if (!staffMap[staff]) staffMap[staff] = { count:0, mrr:0, tasks:0 };
+      staffMap[staff].tasks++;
+    }
+  });
+  var staffRows = Object.keys(staffMap).sort().map(function(staff) {
+    var d = staffMap[staff];
+    return '<tr><td style="font-weight:600">'+escHtml(staff)+'</td><td style="text-align:center">'+d.count+'</td><td style="text-align:right;color:#3b82f6;font-weight:600">'+fmtMoney(d.mrr)+'</td><td style="text-align:center;color:'+(d.tasks>0?'#f59e0b':'#10b981')+'">'+d.tasks+'</td></tr>';
+  }).join('');
+
   // 要対応アラート生成
   var alerts = [];
   if (lineClam > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fef2f2;border-left:3px solid #ef4444;border-radius:0 6px 6px 0;cursor:pointer" onclick="state.line.listFilter=\'clam\';loadModule(\'line\')"><span style="font-size:16px">🚨</span><div><div style="font-weight:700;font-size:13px;color:#991b1b">クレーム '+lineClam+' 件 — 至急対応が必要</div><div style="font-size:11px;color:#ef4444">LINE対応 → クレームタブで確認</div></div></div>');
@@ -1126,7 +1171,14 @@ modules.dashboard = function() {
     (recentSupport.length?'<div class="card" style="margin-top:16px"><div class="card-title">最近のサポート履歴</div><div class="table-wrap"><table><thead><tr><th>案件</th><th>日付</th><th>分類</th></tr></thead><tbody>' + supportRows + '</tbody></table></div></div>':'') +
     '<div class="card" style="margin-top:16px"><div class="card-title">MRR 推移（直近12ヶ月）' +
     (invoices.length?'':'<span style="font-size:11px;color:#9ca3af;font-weight:400"> ※請求ロボCSV未取込 — 概算値（マスタfee合計）</span>') +
-    '</div><div style="position:relative;height:200px"><canvas id="mrr-chart"></canvas></div></div>';
+    '</div><div style="position:relative;height:200px"><canvas id="mrr-chart"></canvas></div></div>' +
+    '<div class="card" style="margin-top:16px"><div class="card-title">クチコミ件数推移（直近12ヶ月）' +
+    (_reviewKpi && Object.keys(_reviewKpi.by_fl||{}).length ? '' : '<span style="font-size:11px;color:#9ca3af;font-weight:400"> ※クチコミKPIデータ未取込</span>') +
+    '</div><div style="position:relative;height:200px"><canvas id="review-chart"></canvas></div></div>' +
+    '<div class="card" style="margin-top:16px"><div class="card-title">CS担当者別 KPI</div>' +
+    (staffRows ? '<div class="table-wrap"><table><thead><tr><th>担当者</th><th style="text-align:center">契約件数</th><th style="text-align:right">MRR（概算）</th><th style="text-align:center">未完了タスク</th></tr></thead><tbody>'+staffRows+'</tbody></table></div>' :
+    '<div class="empty-state"><div class="icon">👤</div><p>案件にCS担当者が設定されていません。案件マスタで設定してください。</p></div>') +
+    '</div>';
 
   // MRRチャート描画（DOM更新後に非同期実行）
   setTimeout(function() {
@@ -1178,6 +1230,58 @@ modules.dashboard = function() {
         }},
         scales: {
           y: { ticks: { callback: function(v){ return v>=10000?'¥'+(v/10000).toFixed(0)+'万':'¥'+v.toLocaleString(); }, font:{size:11} }, grid:{color:'#f3f4f6'} },
+          x: { ticks: { font:{size:11} }, grid:{display:false} }
+        }
+      }
+    });
+  }, 0);
+
+  // クチコミ件数推移グラフ描画
+  setTimeout(function() {
+    var canvas = document.getElementById('review-chart');
+    if (!canvas) return;
+    // 直近12ヶ月のYYYY/MM配列（monthly_count のキー形式と合わせる）
+    var months = [];
+    var d = new Date();
+    for (var i = 11; i >= 0; i--) {
+      var dd = new Date(d.getFullYear(), d.getMonth() - i, 1);
+      months.push(String(dd.getFullYear()) + '/' + String(dd.getMonth()+1).padStart(2,'0'));
+    }
+    // 全FL × 全店舗の monthly_count を月別に合計
+    var reviewByMonth = {};
+    months.forEach(function(m){ reviewByMonth[m] = 0; });
+    if (_reviewKpi && _reviewKpi.by_fl) {
+      Object.keys(_reviewKpi.by_fl).forEach(function(fl) {
+        (_reviewKpi.by_fl[fl] || []).forEach(function(sk) {
+          Object.keys(sk.monthly_count || {}).forEach(function(ym) {
+            if (reviewByMonth.hasOwnProperty(ym)) reviewByMonth[ym] += +(sk.monthly_count[ym]) || 0;
+          });
+        });
+      });
+    }
+    var vals = months.map(function(m){ return reviewByMonth[m]; });
+    var labels = months.map(function(m){ return m.slice(5); }); // MM表示
+    if (window._reviewChart) { try { window._reviewChart.destroy(); } catch(e){} }
+    window._reviewChart = new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'クチコミ件数',
+          data: vals,
+          backgroundColor: 'rgba(16,185,129,.7)',
+          borderColor: '#10b981',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: function(ctx){ return ctx.raw + '件'; } }
+        }},
+        scales: {
+          y: { ticks: { font:{size:11} }, grid:{color:'#f3f4f6'}, beginAtZero: true },
           x: { ticks: { font:{size:11} }, grid:{display:false} }
         }
       }
@@ -5354,20 +5458,57 @@ function renderSupportList(q){
 function showSupportLogs(fl){
   var c=MASTER_CASES.find(function(x){return x.fl===fl;});if(!c)return;
   var s=getStore();
-  var logs=s.supportLogs.filter(function(l){return l.caseFL===fl;}).sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+  var filter=state.support.filter||{cat:'',res:''};
+  var logs=s.supportLogs.filter(function(l){
+    if(l.caseFL!==fl) return false;
+    if(filter.cat && l.category!==filter.cat) return false;
+    if(filter.res && l.resolution!==filter.res) return false;
+    return true;
+  }).sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
   var catColors={'管理画面':'badge-blue','写真':'badge-purple','クチコミ':'badge-yellow','解約':'badge-red','請求':'badge-green','LINE':'badge-blue','その他':'badge-gray'};
-  var rows=logs.map(function(l){return '<tr><td>'+escHtml(l.date)+'</td><td><span class="badge '+(catColors[l.category]||'badge-gray')+'">'+escHtml(l.category)+'</span></td><td>'+escHtml(l.summary)+'</td><td><button class="btn btn-sm btn-danger" onclick="deleteSupportLog(\''+escHtml(l.id)+'\',\''+escHtml(fl)+'\')">削除</button></td></tr>';}).join('');
+  var resColors={'解決済み':'badge-green','対応中':'badge-yellow','未解決':'badge-red','対応不要':'badge-gray'};
+  var allLogs=s.supportLogs.filter(function(l){return l.caseFL===fl;});
+  // 統計サマリ
+  var totalMin=allLogs.reduce(function(a,l){return a+(+l.duration||0);},0);
+  var solved=allLogs.filter(function(l){return l.resolution==='解決済み';}).length;
+  var rows=logs.map(function(l){
+    var resLabel=l.resolution||'-';
+    var resCls=resColors[l.resolution]||'badge-gray';
+    var dur=l.duration?l.duration+'分':'-';
+    return '<tr><td>'+escHtml(l.date)+'</td><td><span class="badge '+(catColors[l.category]||'badge-gray')+'">'+escHtml(l.category)+'</span></td><td style="max-width:200px">'+escHtml(l.summary)+'</td><td><span class="badge '+resCls+'">'+escHtml(resLabel)+'</span></td><td style="text-align:right">'+escHtml(dur)+'</td><td><button class="btn btn-sm btn-danger" onclick="deleteSupportLog(\''+escHtml(l.id)+'\',\''+escHtml(fl)+'\')">削除</button></td></tr>';
+  }).join('');
+  var catSel='<select onchange="state.support.filter.cat=this.value;showSupportLogs(\''+escHtml(fl)+'\')" style="font-size:12px;border:1px solid #e5e7eb;border-radius:6px;padding:3px 6px"><option value="">全カテゴリ</option>'+['管理画面','写真','クチコミ','解約','請求','LINE','その他'].map(function(v){return '<option value="'+v+'"'+(filter.cat===v?' selected':'')+'>'+v+'</option>';}).join('')+'</select>';
+  var resSel='<select onchange="state.support.filter.res=this.value;showSupportLogs(\''+escHtml(fl)+'\')" style="font-size:12px;border:1px solid #e5e7eb;border-radius:6px;padding:3px 6px"><option value="">全解決状況</option>'+['解決済み','対応中','未解決','対応不要'].map(function(v){return '<option value="'+v+'"'+(filter.res===v?' selected':'')+'>'+v+'</option>';}).join('')+'</select>';
   document.getElementById('support-right').innerHTML=
-    '<div style="padding:12px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between"><strong>'+escHtml(c.fl)+' - '+escHtml(c.name)+'</strong><button class="btn btn-primary btn-sm" onclick="openSupportForm(\''+escHtml(fl)+'\')">＋ 記録追加</button></div>' +
-    '<div class="panel-right-inner">'+(logs.length?'<div class="table-wrap"><table><thead><tr><th>日付</th><th>分類</th><th>内容</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty-state"><div class="icon">🛟</div><p>記録なし</p></div>')+'</div>';
+    '<div style="padding:10px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'+
+    '<strong style="font-size:14px">'+escHtml(c.fl)+' - '+escHtml(c.name)+'</strong>'+
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
+    '<span style="font-size:11px;color:#6b7280">計'+allLogs.length+'件 / 解決'+solved+'件 / 累計'+totalMin+'分</span>'+
+    catSel+resSel+
+    '<button class="btn btn-primary btn-sm" onclick="openSupportForm(\''+escHtml(fl)+'\')">＋ 記録追加</button></div></div>' +
+    '<div class="panel-right-inner">'+(logs.length?
+      '<div class="table-wrap"><table><thead><tr><th>日付</th><th>分類</th><th>内容</th><th>解決状況</th><th style="text-align:right">対応時間</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':
+      '<div class="empty-state"><div class="icon">🛟</div><p>'+(filter.cat||filter.res?'フィルター条件に合う記録なし':'記録なし')+'</p></div>')+'</div>';
 }
 function openSupportForm(fl){
   openModal('サポート記録追加',
     '<div class="form-row"><div class="form-group"><label>日付</label><input type="date" id="sf-date" value="'+today()+'"></div><div class="form-group"><label>カテゴリ</label><select id="sf-cat"><option>管理画面</option><option>写真</option><option>クチコミ</option><option>解約</option><option>請求</option><option>LINE</option><option>その他</option></select></div></div>' +
+    '<div class="form-row"><div class="form-group"><label>解決状況</label><select id="sf-res"><option value="">-</option><option>解決済み</option><option>対応中</option><option>未解決</option><option>対応不要</option></select></div><div class="form-group"><label>対応時間（分）</label><input type="number" id="sf-dur" min="0" placeholder="例: 30"></div></div>' +
     '<div class="form-group"><label>内容</label><textarea id="sf-summary"></textarea></div>',
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="saveSupportLog(\''+escHtml(fl)+'\')">保存</button>');
 }
-function saveSupportLog(fl){var s=getStore();s.supportLogs.push({id:uid(),caseFL:fl,date:document.getElementById('sf-date').value,category:document.getElementById('sf-cat').value,summary:document.getElementById('sf-summary').value});saveStore(s);closeModal();toast('保存しました');showSupportLogs(fl);}
+function saveSupportLog(fl){
+  var s=getStore();
+  s.supportLogs.push({
+    id:uid(), caseFL:fl,
+    date:document.getElementById('sf-date').value,
+    category:document.getElementById('sf-cat').value,
+    resolution:document.getElementById('sf-res').value,
+    duration:+document.getElementById('sf-dur').value||0,
+    summary:document.getElementById('sf-summary').value
+  });
+  saveStore(s);closeModal();toast('保存しました');showSupportLogs(fl);
+}
 function deleteSupportLog(id,fl){if(!confirm('削除しますか？'))return;var s=getStore();s.supportLogs=s.supportLogs.filter(function(l){return l.id!==id;});saveStore(s);toast('削除しました','info');showSupportLogs(fl);}
 
 // ===================== BILLING & CONTRACT HELPERS =====================
