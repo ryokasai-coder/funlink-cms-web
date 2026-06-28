@@ -1858,6 +1858,27 @@ function renderMasterDetail(fl) {
   } else if (tab === 1) {
     // 店舗一覧
     var storeCards = stores.map(function(s, idx){
+      // GBPステータス別おすすめMEO記事（コンテキスト型ナッジ）
+      var meoTips = '';
+      if (_meoArticles && _meoArticles.length) {
+        var tipIds = [];
+        if (!s.gbp_status) {
+          tipIds = ['seed06','seed07']; // GBP未連携 → オーナー確認・カテゴリ設定
+        } else if (!s.kw) {
+          tipIds = ['seed03','seed09']; // KW未設定 → KPI設定・Googleポスト
+        } else {
+          tipIds = ['seed11','seed12']; // 通常 → クチコミ獲得・返信
+        }
+        var tipItems = tipIds.map(function(tid){ return _meoArticles.find(function(a){return a.id===tid;}); }).filter(Boolean);
+        if (tipItems.length) {
+          meoTips = '<div style="margin-top:12px;padding:10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px">' +
+            '<div style="font-size:11px;font-weight:700;color:#0369a1;margin-bottom:6px">📚 おすすめMEO学習</div>' +
+            tipItems.map(function(a){
+              return '<div style="font-size:12px;color:#1d4ed8;cursor:pointer;padding:2px 0" onclick="state.learning.viewId=\''+escHtml(a.id)+'\';closeModal();loadModule(\'learning\')">▶ '+escHtml(a.title)+'</div>';
+            }).join('') +
+          '</div>';
+        }
+      }
       return '<div class="card" style="margin-bottom:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
         '<div>' +
@@ -1872,6 +1893,7 @@ function renderMasterDetail(fl) {
         '<div><span style="color:#9ca3af">KW数</span><br>' + escHtml(String(s.kw||'-')) + '</div>' +
         '</div>' +
         (s.meo ? '<div style="margin-top:10px"><a href="' + escHtml(s.meo) + '" target="_blank" class="btn btn-sm btn-secondary">📊 MEO-Dash</a></div>' : '') +
+        meoTips +
         '</div>';
     }).join('');
     content = stores.length ? storeCards : '<div style="text-align:center;color:#9ca3af;padding:48px">店舗データがありません</div>';
@@ -5607,12 +5629,6 @@ function saveMtg(fl,editId){
   else s.meetings.push(obj);
   saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);
 }
-function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);logAudit('delete','meeting',id,fl);closeModal();toast('削除しました');showMtgList(fl); }atedAt:today()};
-  var s=getStore();
-  if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0)s.meetings[idx]=obj;else s.meetings.push(obj);}
-  else s.meetings.push(obj);
-  saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);
-}
 function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);logAudit('delete','meeting',id,fl);closeModal();toast('削除しました');showMtgList(fl); }
 
 // TASK V2
@@ -7545,21 +7561,27 @@ function openLearningEditForm(id){
 }
 
 function saveLearning(){
-  var s=getStore();var title=document.getElementById('lf-title').value.trim();
+  var title=document.getElementById('lf-title').value.trim();
   if(!title){toast('タイトルを入力してください','error');return;}
-  s.learningItems.push({id:uid(),title:title,category:document.getElementById('lf-cat').value,difficulty:document.getElementById('lf-diff').value,tags:document.getElementById('lf-tags').value,minutes:parseInt(document.getElementById('lf-minutes').value)||0,content:document.getElementById('lf-content').value,videoUrl:document.getElementById('lf-video').value.trim(),url:document.getElementById('lf-url').value.trim(),createdAt:today(),read:false});
-  saveStore(s);closeModal();toast('保存しました');modules.learning();
+  if(!_meoArticles){toast('記事データが読み込まれていません','error');return;}
+  _meoArticles.push({id:uid(),title:title,category:document.getElementById('lf-cat').value,difficulty:document.getElementById('lf-diff').value,tags:document.getElementById('lf-tags').value,minutes:parseInt(document.getElementById('lf-minutes').value)||0,content:document.getElementById('lf-content').value,videoUrl:document.getElementById('lf-video').value.trim(),url:document.getElementById('lf-url').value.trim(),createdAt:today()});
+  saveMeoArticles().then(function(){closeModal();toast('保存しました');modules.learning();}).catch(function(e){toast('保存に失敗しました: '+(e.message||e),true);});
 }
 function updateLearning(id){
-  var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(!item)return;
+  var item=(_meoArticles||[]).find(function(x){return x.id===id;});if(!item)return;
   var title=document.getElementById('lf-title').value.trim();if(!title){toast('タイトルを入力してください','error');return;}
   item.title=title;item.category=document.getElementById('lf-cat').value;item.difficulty=document.getElementById('lf-diff').value;
   item.tags=document.getElementById('lf-tags').value;item.minutes=parseInt(document.getElementById('lf-minutes').value)||0;
   item.content=document.getElementById('lf-content').value;item.videoUrl=document.getElementById('lf-video').value.trim();item.url=document.getElementById('lf-url').value.trim();
-  saveStore(s);closeModal();toast('更新しました');modules.learning();
+  saveMeoArticles().then(function(){closeModal();toast('更新しました');modules.learning();}).catch(function(e){toast('更新に失敗しました: '+(e.message||e),true);});
 }
-function markLearningRead(id){var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(item)item.read=true;saveStore(s);toast('既読にしました');modules.learning();}
-function deleteLearning(id){if(!confirm('削除しますか？'))return;var s=getStore();s.learningItems=s.learningItems.filter(function(x){return x.id!==id;});saveStore(s);state.learning.viewId=null;toast('削除しました','info');modules.learning();}
+function markLearningRead(id){markMeoArticleRead(id).then(function(){toast('既読にしました');modules.learning();});}
+function deleteLearning(id){
+  if(!confirm('削除しますか？'))return;
+  if(!_meoArticles)return;
+  _meoArticles=_meoArticles.filter(function(x){return x.id!==id;});
+  saveMeoArticles().then(function(){state.learning.viewId=null;toast('削除しました','info');modules.learning();}).catch(function(e){toast('削除に失敗しました: '+(e.message||e),true);});
+}
 
 // ===================== クライアント向けレポート生成 =====================
 
