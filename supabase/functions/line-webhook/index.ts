@@ -66,13 +66,12 @@ Deno.serve(async (req) => {
   const bodyText = await req.text()
 
   // LINE署名検証（CHANNEL_SECRETが設定されている場合のみ）
-  // 診断モード: 署名不一致でも401を返さずログのみ（接続確認用）
   if (CHANNEL_SECRET) {
     const signature = req.headers.get('x-line-signature') || ''
     const expected = await hmacSha256Base64(CHANNEL_SECRET, bodyText)
     if (expected !== signature) {
-      console.error('Signature mismatch. Expected:', expected, 'Got:', signature)
-      // 接続確認フェーズのため処理を続行（本番稼働後は return 401 に戻す）
+      console.error('Signature mismatch. Got:', signature)
+      return new Response('Unauthorized', { status: 401, headers: corsHeaders })
     }
   }
 

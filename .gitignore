@@ -1,0 +1,6 @@
+.vercel
+credentials.json
+token.json
+*.env
+.env*
+node_modules/

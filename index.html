@@ -201,6 +201,22 @@ var SUPABASE_URL = 'https://xfumvuxahjferrapdywj.supabase.co';
 var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdW12dXhhaGpmZXJyYXBkeXdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMzIxNzQsImV4cCI6MjA5NjcwODE3NH0.6NX0EQubDt3h-jy2E9VDS2ehb6IhFnYnHTajNQ4YEM4';
 var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ---- 監査ログ記録（fire-and-forget） ----
+function logAudit(action, targetType, targetId, targetName, detail) {
+  if (!currentUser) return;
+  _sb.from('audit_log').insert({
+    user_id:     currentUser.id,
+    user_email:  currentUser.email,
+    action:      action,
+    target_type: targetType,
+    target_id:   targetId   || null,
+    target_name: targetName || null,
+    detail:      detail     || null
+  }).then(function(res) {
+    if (res.error) console.warn('監査ログ記録エラー:', res.error.message);
+  });
+}
+
 var _storeCache = null;
 var _lastSaveTime = null;        // 最終保存成功日時
 var _saveFailCount = 0;          // 連続失敗回数
@@ -1571,6 +1587,7 @@ async function saveCaseEdit(fl) {
   c.login    = document.getElementById('ce-login').value.trim();
   c.caddr    = document.getElementById('ce-addr').value.trim();
   await saveMasterCases();
+  logAudit('update', 'case', fl, c.name);
   closeModal();
   toast('保存しました');
   state.master.detailTab = 0;
@@ -1624,6 +1641,7 @@ async function saveCaseAdd() {
   };
   MASTER_CASES.push(newCase);
   await saveMasterCases();
+  logAudit('create', 'case', newCase.fl, newCase.name);
   closeModal();
   toast(fl + ' を追加しました');
   state.master.selectedFL = fl;
@@ -4806,9 +4824,9 @@ function saveMtg(fl,editId){
   var s=getStore();
   if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0)s.meetings[idx]=obj;else s.meetings.push(obj);}
   else s.meetings.push(obj);
-  saveStore(s);closeModal();toast('保存しました');showMtgList(fl);
+  saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);
 }
-function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);closeModal();toast('削除しました');showMtgList(fl); }
+function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);logAudit('delete','meeting',id,fl);closeModal();toast('削除しました');showMtgList(fl); }
 
 // TASK V2
 modules.task = function() { renderTaskModule(); };
@@ -5238,9 +5256,9 @@ function tvSaveTask(id){
   var tasks=tvGetTasks(); var ex=id?tasks.find(function(x){return x.id===id;}):null;
   var obj={id:id||uid(),fl:fl,store_id:storeVal,store_name:storeName,name:name,assignee:document.getElementById('tvf-assignee').value,start_date:start,due_date:due,priority:document.getElementById('tvf-prio').value,status:document.getElementById('tvf-status').value,note:(document.getElementById('tvf-note').value||'').trim(),subtasks:id?(ex?ex.subtasks||[]:[]):_tvTempSubs.slice()};
   if(id){var idx=tasks.findIndex(function(x){return x.id===id;});if(idx>=0)tasks[idx]=obj;else tasks.push(obj);}else tasks.push(obj);
-  tvSaveTasks(tasks);closeModal();toast('保存しました');renderTaskModule();
+  tvSaveTasks(tasks);logAudit(id?'update':'create','task',obj.id,obj.name,{fl:obj.fl,assignee:obj.assignee,due:obj.due_date});closeModal();toast('保存しました');renderTaskModule();
 }
-function tvDelTask(id){ if(!confirm('このタスクを削除しますか？')) return; tvSaveTasks(tvGetTasks().filter(function(t){return t.id!==id;})); closeModal();toast('削除しました','info');renderTaskModule(); }
+function tvDelTask(id){ if(!confirm('このタスクを削除しますか？')) return; var _dt=tvGetTasks().find(function(t){return t.id===id;}); tvSaveTasks(tvGetTasks().filter(function(t){return t.id!==id;})); logAudit('delete','task',id,_dt?_dt.name:id);closeModal();toast('削除しました','info');renderTaskModule(); }
 function tvAddSub(taskId){
   var inp=document.getElementById('tvf-subadd'); if(!inp||!inp.value.trim()) return;
   var newSub={id:uid(),name:inp.value.trim(),assignee:'',status:'todo'};
@@ -5601,7 +5619,7 @@ function importBillingCSV(type,text){
 function exportContractCSV(){
   var s0=getStore();
   var flcAll=(s0.contracts&&s0.contracts.fl_contracts)||{};
-  var headers=['FL番号','会社名','案件ステータス','担当者名','メールアドレス','電話番号','住所','契約開始日','月額_マスタ','業種','ログインID','会社ID',
+  var headers=['案件番号','会社名','案件ステータス','担当者名','メールアドレス','電話番号','住所','契約開始日','月額_マスタ','業種','ログインID','会社ID',
                '契約状態','請求状態','継続状況','更新回数','更新期間_月','課金開始日','最終課金日','更新日リスト','月額_シート'];
   function csvEscape(v){
     var s=String(v===null||v===undefined?'':v);

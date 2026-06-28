@@ -1,0 +1,16 @@
+credentials.json
+token.json
+*.env
+.env*
+*.gs
+*.py
+*.js
+!index.html
+*.csv
+*.json
+!serve.json
+*.txt
+.claude/
+CLAUDE.md
+supabase/
+node_modules/
