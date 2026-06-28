@@ -5354,23 +5354,86 @@ function renderMtgList(q) {
   var s=getStore();
   var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
   var el=document.getElementById('mtg-case-list');if(!el)return;
-  el.innerHTML=list.map(function(c){
-    var cnt=s.meetings.filter(function(m){return m.caseFL===c.fl;}).length;
-    return '<div class="case-item '+(state.meeting.selectedFL===c.fl?'active':'')+'" onclick="state.meeting.selectedFL=\''+escHtml(c.fl)+'\';showMtgList(\''+escHtml(c.fl)+'\');renderMtgList(this.closest(\'.panel-left\').querySelector(\'input\').value)">' +
-      '<div class="fl">'+escHtml(c.fl)+'</div><div class="name">'+escHtml(c.name)+'</div>' +
-      (cnt?'<div style="margin-top:3px"><span class="badge badge-blue">'+cnt+'件</span></div>':'')+
-      '</div>';
-  }).join('');
+  el.innerHTML=list.map(function(c){// MTG種別バッジ（色分け）
+function mtgTypeBadge(t){
+  var styles={月次定例:'background:#DCFCE7;color:#166534',オンボーディング:'background:#DBEAFE;color:#1E40AF',問題対応:'background:#FEF3C7;color:#92400E',解約防止:'background:#FEE2E2;color:#991B1B',その他:'background:#F3F4F6;color:#374151'};
+  var st=styles[t]||styles['その他'];
+  return t?'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;white-space:nowrap;'+st+'">'+escHtml(t)+'</span>':'<span style="font-size:10px;color:#9ca3af">—</span>';
+}
+// 次回MTG推奨日を計算（定例頻度 × 最終実施日）
+function mtgNextRecommendedDate(fl){
+  var s=getStore();
+  var mtgs=s.meetings.filter(function(m){return m.caseFL===fl&&m.meetingStatus==='実施済み'&&m.date;});
+  if(!mtgs.length) return null;
+  mtgs.sort(function(a,b){return b.date.localeCompare(a.date);});
+  var lastDate=mtgs[0].date;
+  var cstores=getCStores(fl);
+  var freq=null;
+  for(var i=0;i<cstores.length;i++){if(cstores[i].meeting_frequency){freq=cstores[i].meeting_frequency;break;}}
+  if(!freq||freq==='なし') return null;
+  var days=freq==='月次'?30:freq==='3ヶ月に1回'?90:null;
+  if(!days) return null;
+  var d=new Date(lastDate); d.setDate(d.getDate()+days);
+  return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
+}
+// MTGアクションをタスクモジュールに追加
+function mtgActionsToTask(mtgId,fl){
+  var s=getStore();
+  var m=s.meetings.find(function(x){return x.id===mtgId;});
+  if(!m||!m.actions){toast('アクションが入力されていません',true);return;}
+  var c=MASTER_CASES.find(function(x){return x.fl===fl;});
+  var d=new Date(); d.setMonth(d.getMonth()+1); d.setDate(1); d.setDate(0);
+  var due=d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
+  var firstAtt=m.attendees?(m.attendees.split(/[、,，]/)[0]||'').trim():'';
+  var obj={id:uid(),fl:fl,store_id:'',store_name:'',name:'MTGアクション: '+(m.date||m.scheduledDate||'')+(c?' ('+c.name+')':''),assignee:firstAtt,start_date:today(),due_date:due,priority:'mid',status:'todo',note:m.actions,subtasks:[]};
+  var tasks=tvGetTasks();tasks.push(obj);
+  tvSaveTasks(tasks);logAudit('create','task',obj.id,obj.name,{fl:fl,source:'meeting',mtgId:mtgId});
+  closeModal();toast('タスクに追加しました！タスク管理で確認できます');
 }
 function showMtgList(fl){
   var c=MASTER_CASES.find(function(x){return x.fl===fl;});if(!c)return;
   var s=getStore();
   var mtgs=s.meetings.filter(function(m){return m.caseFL===fl;}).sort(function(a,b){return (b.date||b.scheduledDate||'').localeCompare(a.date||a.scheduledDate||'');});
-  var rows=mtgs.map(function(m){return '<tr><td><span class="badge '+(m.meetingStatus==='実施済み'?'badge-green':'badge-blue')+'">'+escHtml(m.meetingStatus)+'</span></td><td>'+escHtml(m.date||m.scheduledDate)+'</td><td>'+escHtml(m.attendees||'-')+'</td><td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(m.summary||m.agenda||'-')+'</td><td><div style="display:flex;gap:6px"><button class="btn btn-sm btn-secondary" onclick="openMtgView(\''+escHtml(m.id)+'\')">詳細</button><button class="btn btn-sm btn-danger" onclick="deleteMtg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button></div></td></tr>';}).join('');
+  var rows=mtgs.map(function(m){
+    var calBtn='';
+    if(m.meetingStatus==='予定'&&m.scheduledDate){
+      var calDate=m.scheduledDate.replace(/-/g,'');
+      var calTitle=encodeURIComponent((c.name||fl)+' MTG'+(m.meetingType?' ['+m.meetingType+']':''));
+      var calUrl='https://calendar.google.com/calendar/render?action=TEMPLATE&text='+calTitle+'&dates='+calDate+'T100000/'+calDate+'T110000&details='+encodeURIComponent('参加者: '+(m.attendees||'-'));
+      calBtn='<a href="'+calUrl+'" target="_blank" style="font-size:10px;padding:2px 7px;border-radius:4px;background:#EEF2FF;color:#4338CA;border:1px solid #C7D2FE;text-decoration:none;font-weight:600;white-space:nowrap;display:inline-block">📅 Cal</a>';
+    }
+    return '<tr>'+
+      '<td><span class="badge '+(m.meetingStatus==='実施済み'?'badge-green':'badge-blue')+'">'+escHtml(m.meetingStatus)+'</span></td>'+
+      '<td>'+mtgTypeBadge(m.meetingType)+'</td>'+
+      '<td>'+escHtml(m.date||m.scheduledDate)+'</td>'+
+      '<td>'+escHtml(m.attendees||'-')+'</td>'+
+      '<td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escHtml(m.issues||m.summary||m.agenda||'-')+'</td>'+
+      '<td><div style="display:flex;gap:4px;align-items:center">'+calBtn+
+        '<button class="btn btn-sm btn-secondary" onclick="openMtgView(\''+escHtml(m.id)+'\')">詳細</button>'+
+        '<button class="btn btn-sm btn-danger" onclick="deleteMtg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button>'+
+      '</div></td></tr>';
+  }).join('');
+  var nextRec=mtgNextRecommendedDate(fl);
+  var todayStr=today();
+  var recBanner='';
+  if(nextRec){
+    var isPast=nextRec<todayStr;
+    var dayDiff=Math.round((new Date(nextRec)-new Date(todayStr))/(1000*60*60*24));
+    var dayLabel=isPast?'（'+Math.abs(dayDiff)+'日超過）':'（'+dayDiff+'日後）';
+    var bStyle=isPast?'background:#FEF2F2;border-color:#FECACA;color:#B91C1C':'background:#EFF6FF;border-color:#BFDBFE;color:#1D4ED8';
+    var calDate2=nextRec.replace(/-/g,'');
+    var calTitle2=encodeURIComponent((c.name||fl)+' 定例MTG');
+    var calUrl2='https://calendar.google.com/calendar/render?action=TEMPLATE&text='+calTitle2+'&dates='+calDate2+'T100000/'+calDate2+'T110000';
+    recBanner='<div style="margin:10px 14px 0;padding:8px 12px;border-radius:6px;border:1px solid;'+bStyle+';display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'+
+      '<span style="font-size:12px;font-weight:600">次回定例推奨日: '+escHtml(nextRec)+' <span style="font-weight:400;font-size:11px">'+dayLabel+'</span></span>'+
+      '<a href="'+calUrl2+'" target="_blank" style="font-size:11px;padding:3px 10px;border-radius:4px;background:#fff;color:#4338CA;border:1px solid #C7D2FE;text-decoration:none;font-weight:600;white-space:nowrap">Googleカレンダーに追加</a>'+
+    '</div>';
+  }
   document.getElementById('mtg-right').innerHTML=
     '<div style="padding:12px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between"><strong>'+escHtml(c.fl)+' - '+escHtml(c.name)+'</strong><button class="btn btn-primary btn-sm" onclick="openMtgForm(\''+escHtml(fl)+'\')">＋ MTG追加</button></div>' +
+    recBanner +
     '<div class="panel-right-inner">' +
-    (mtgs.length?'<div class="table-wrap"><table><thead><tr><th>種別</th><th>日付</th><th>参加者</th><th>内容</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty-state"><div class="icon">📅</div><p>MTGなし</p></div>')+
+    (mtgs.length?'<div class="table-wrap"><table><thead><tr><th>ステータス</th><th>種別</th><th>日付</th><th>参加者</th><th>課題</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="empty-state"><div class="icon">📅</div><p>MTGなし</p></div>')+
     '</div>';
 }
 function openMtgView(id){
@@ -5380,13 +5443,15 @@ function openMtgView(id){
   }).join(' ')||'-';
   openModal('MTG詳細',
     '<div class="info-grid">'+
-    '<span class="key">種別</span><span class="val">'+escHtml(m.meetingStatus)+'</span>'+
+    '<span class="key">ステータス</span><span class="val"><span class="badge '+(m.meetingStatus==='実施済み'?'badge-green':'badge-blue')+'">'+escHtml(m.meetingStatus)+'</span></span>'+
+    (m.meetingType?'<span class="key">MTG種別</span><span class="val">'+mtgTypeBadge(m.meetingType)+'</span>':'')+
     '<span class="key">日付</span><span class="val">'+escHtml(m.date||m.scheduledDate)+'</span>'+
     '<span class="key">参加者</span><span class="val" style="display:flex;flex-wrap:wrap;gap:4px">'+attendeeChips+'</span>'+
     (m.issues||m.decisions?'<span class="key">① 課題</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.issues||'-')+'</span>'+'<span class="key">② 決定事項</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.decisions||'-')+'</span>':'<span class="key">議事録</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.summary||m.agenda||'-')+'</span>') +
     '<span class="key">③ 次回アクション</span><span class="val" style="white-space:pre-wrap">'+escHtml(m.actions||'-')+'</span>'+
     '</div>',
     '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>'+
+    (m.actions?'<button class="btn" style="background:#F0FDF4;color:#166534;border:1px solid #BBF7D0" onclick="mtgActionsToTask(\''+escHtml(id)+'\',\''+escHtml(m.caseFL)+'\')">タスク化</button>':'')+
     '<button class="btn btn-primary" onclick="closeModal();openMtgForm(\''+escHtml(m.caseFL)+'\',\''+escHtml(id)+'\')">編集</button>');
 }
 function openMtgForm(fl,editId){
@@ -5398,8 +5463,13 @@ function openMtgForm(fl,editId){
     return '<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #E4E7EC;border-radius:16px;cursor:pointer;font-size:12px;background:#fff;white-space:nowrap">'+
       '<input type="checkbox" value="'+escHtml(n)+'"'+chk+' style="margin:0">'+escHtml(n)+'</label>';
   }).join('');
+  var mtgTypeOpts=['月次定例','オンボーディング','問題対応','解約防止','その他'].map(function(v){return '<option value="'+v+'"'+(ex&&ex.meetingType===v?' selected':'')+'>'+v+'</option>';}).join('');
   openModal(editId?'MTG編集':'MTG追加',
-    '<div class="form-row"><div class="form-group"><label>種別</label><select id="mf-status"><option'+(ex&&ex.meetingStatus==='予定'?' selected':'')+'>予定</option><option'+(ex&&ex.meetingStatus==='実施済み'?' selected':'')+'>実施済み</option></select></div><div class="form-group"><label>日付</label><input type="date" id="mf-date" value="'+(ex?escHtml(ex.date||ex.scheduledDate||today()):today())+'"></div></div>' +
+    '<div class="form-row">'+
+      '<div class="form-group"><label>ステータス</label><select id="mf-status"><option'+(ex&&ex.meetingStatus==='予定'?' selected':'')+'>予定</option><option'+(ex&&ex.meetingStatus==='実施済み'?' selected':'')+'>実施済み</option></select></div>'+
+      '<div class="form-group"><label>MTG種別</label><select id="mf-type"><option value="">選択してください</option>'+mtgTypeOpts+'</select></div>'+
+      '<div class="form-group"><label>日付</label><input type="date" id="mf-date" value="'+(ex?escHtml(ex.date||ex.scheduledDate||today()):today())+'"></div>'+
+    '</div>' +
     '<div class="form-group"><label>参加者 <span style="font-size:11px;color:#98A2B3;font-weight:400">（複数選択可）</span></label>'+
       '<div id="mf-attendees-wrap" style="display:flex;flex-wrap:wrap;gap:5px;padding:8px;border:1px solid #E4E7EC;border-radius:6px;background:#FAFBFC;min-height:36px">'+
         (staff.length?staffCbs:'<span style="font-size:12px;color:#98A2B3">担当者が登録されていません（クチコミ管理で設定）</span>')+
@@ -5429,10 +5499,10 @@ function mtgInsertTemplate(){
 }
 function saveMtg(fl,editId){
   var st=document.getElementById('mf-status').value;
+  var mt=document.getElementById('mf-type').value;
   var issues=(document.getElementById('mf-issues').value||'').trim();
   var decisions=(document.getElementById('mf-decisions').value||'').trim();
   var actions=(document.getElementById('mf-actions').value||'').trim();
-  // 空欄チェック（実施済みMTGのみ必須）
   if(st==='実施済み'){
     if(!issues){ toast('① 課題 を入力してください', true); document.getElementById('mf-issues').focus(); return; }
     if(!decisions){ toast('② 決定事項 を入力してください', true); document.getElementById('mf-decisions').focus(); return; }
@@ -5441,7 +5511,13 @@ function saveMtg(fl,editId){
   var cbs=document.querySelectorAll('#mf-attendees-wrap input[type=checkbox]:checked');
   var checked=[];for(var i=0;i<cbs.length;i++) checked.push(cbs[i].value);
   var attendees=checked.join('、');
-  var obj={id:editId||uid(),caseFL:fl,meetingStatus:st,scheduledDate:st==='予定'?document.getElementById('mf-date').value:'',date:st==='実施済み'?document.getElementById('mf-date').value:'',attendees:attendees,issues:issues,decisions:decisions,actions:actions,createdAt:today()};
+  var obj={id:editId||uid(),caseFL:fl,meetingStatus:st,meetingType:mt,scheduledDate:st==='予定'?document.getElementById('mf-date').value:'',date:st==='実施済み'?document.getElementById('mf-date').value:'',attendees:attendees,issues:issues,decisions:decisions,actions:actions,createdAt:today()};
+  var s=getStore();
+  if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0)s.meetings[idx]=obj;else s.meetings.push(obj);}
+  else s.meetings.push(obj);
+  saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);
+}
+function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);logAudit('delete','meeting',id,fl);closeModal();toast('削除しました');showMtgList(fl); }atedAt:today()};
   var s=getStore();
   if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0)s.meetings[idx]=obj;else s.meetings.push(obj);}
   else s.meetings.push(obj);
