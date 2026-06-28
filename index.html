@@ -18,6 +18,7 @@ nav{flex:1;padding:8px 0}
 .nav-item:hover{background:#253461;color:#e2e8f0;border-left-color:#3b82f6}
 .nav-item.active{background:#2e4070;color:#fff;border-left-color:#3b82f6}
 .nav-item .icon{font-size:18px;min-width:24px;text-align:center}
+.nav-badge{display:inline-flex;align-items:center;justify-content:center;background:#ef4444;color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;padding:0 4px;margin-left:auto;font-variant-numeric:tabular-nums;line-height:1}
 #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 #topbar{height:56px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;padding:0 24px;gap:16px}
 #topbar h1{font-size:18px;font-weight:700;color:#1f2937}
@@ -825,6 +826,136 @@ function _unsubscribeLineRealtime() {
     _sb.removeChannel(_lineRealtimeChannel);
     _lineRealtimeChannel = null;
   }
+}
+
+// ---- P1: ナビバッジ更新 ----
+function updateLineNavBadge(unreadCount) {
+  var navEl = document.querySelector('.nav-item[data-module="line"]');
+  if (!navEl) return;
+  var existing = navEl.querySelector('.nav-badge');
+  if (unreadCount > 0) {
+    var html = '<span class="nav-badge">'+unreadCount+'</span>';
+    if (existing) { existing.outerHTML = html; }
+    else { navEl.insertAdjacentHTML('beforeend', html); }
+  } else {
+    if (existing) existing.remove();
+  }
+}
+
+// ---- P2: スレッドロック（cms_storeを使用。DBマイグレーション不要） ----
+var _lineLockTimer = null;
+async function acquireLineThreadLock(fl) {
+  var me = getMyStaffName() || (currentUser && currentUser.email) || '不明';
+  var now = new Date().toISOString();
+  try {
+    var { data } = await _sb.from('cms_store').select('data').eq('id','line_locks').single();
+    var locks = (data && data.data && data.data.by_fl) ? data.data.by_fl : {};
+    var existing = locks[fl];
+    // 5分以内に他者がロック中ならその情報を返す
+    if (existing && existing.by !== me) {
+      var lockedAt = new Date(existing.at);
+      var diffMin = (new Date() - lockedAt) / 60000;
+      if (diffMin < 5) return { locked: true, by: existing.by, at: existing.at };
+    }
+    // 自分のロックを書き込む
+    locks[fl] = { by: me, at: now };
+    await _sb.from('cms_store').upsert({ id: 'line_locks', data: { by_fl: locks }, updated_at: now });
+  } catch(e) { /* cms_storeにline_locksがない場合は無視 */ }
+  // 5分後に自動解放
+  if (_lineLockTimer) clearTimeout(_lineLockTimer);
+  _lineLockTimer = setTimeout(function(){ releaseLineThreadLock(fl); }, 5 * 60 * 1000);
+  return { locked: false };
+}
+
+async function releaseLineThreadLock(fl) {
+  if (_lineLockTimer) { clearTimeout(_lineLockTimer); _lineLockTimer = null; }
+  try {
+    var { data } = await _sb.from('cms_store').select('data').eq('id','line_locks').single();
+    var locks = (data && data.data && data.data.by_fl) ? data.data.by_fl : {};
+    delete locks[fl];
+    await _sb.from('cms_store').upsert({ id: 'line_locks', data: { by_fl: locks }, updated_at: new Date().toISOString() });
+  } catch(e) {}
+}
+
+// ---- P3: 操作ログ書き込み（line_operation_logテーブルが存在しない場合はsilent fail） ----
+async function _writeLineOpLog(fl, msgId, action) {
+  try {
+    var op = getMyStaffName() || (currentUser && currentUser.email) || '不明';
+    await _sb.from('line_operation_log').insert({
+      fl_code: fl,
+      message_id: String(msgId),
+      action: action,
+      operator: op,
+      operated_at: new Date().toISOString()
+    });
+  } catch(e) { /* テーブル未作成の場合は無視 */ }
+}
+
+// ---- P4: 返信テンプレート読み込み ----
+async function loadLineTemplates() {
+  try {
+    var { data } = await _sb.from('cms_store').select('data').eq('id','line_templates').single();
+    return (data && data.data && Array.isArray(data.data.list)) ? data.data.list : [];
+  } catch(e) { return []; }
+}
+
+async function saveLineTemplates(list) {
+  await _sb.from('cms_store').upsert({ id: 'line_templates', data: { list: list }, updated_at: new Date().toISOString() });
+}
+
+function showLineTemplateModal() {
+  loadLineTemplates().then(function(list) {
+    var rows = list.map(function(t, i) {
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid #f3f4f6">' +
+        '<div style="flex:1"><div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:2px">'+escHtml(t.label)+'</div>' +
+        '<div style="font-size:11px;color:#6b7280;white-space:pre-wrap">'+escHtml(t.text)+'</div></div>' +
+        '<button class="btn btn-sm btn-primary" style="white-space:nowrap;flex-shrink:0" onclick="applyLineTemplate('+i+')">使用</button>' +
+        '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b;flex-shrink:0" onclick="deleteLineTemplate('+i+')">削除</button></div>';
+    }).join('') || '<div style="color:#9ca3af;padding:16px 0;text-align:center">テンプレートなし</div>';
+    openModal('返信テンプレート',
+      '<div style="max-height:320px;overflow-y:auto;margin-bottom:16px">'+rows+'</div>' +
+      '<div style="border-top:1px solid #e5e7eb;padding-top:12px">' +
+      '<div style="font-size:12px;font-weight:700;margin-bottom:8px">テンプレートを追加</div>' +
+      '<div class="form-group"><label>ラベル（例：ご確認ありがとうございます）</label><input type="text" id="tmpl_label" placeholder="タイトル"></div>' +
+      '<div class="form-group"><label>本文</label><textarea id="tmpl_text" rows="3" placeholder="送信テキスト..."></textarea></div>' +
+      '<button class="btn btn-primary" onclick="addLineTemplate()">追加</button></div>',
+      '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>'
+    );
+    window._lineTemplateList = list;
+  });
+}
+
+function applyLineTemplate(idx) {
+  var list = window._lineTemplateList || [];
+  var t = list[idx];
+  if (!t) return;
+  var msgEl = document.getElementById('lm_msg');
+  var replyEl = document.getElementById('lm_reply');
+  if (msgEl) msgEl.value = t.text;
+  if (replyEl) replyEl.value = t.text;
+  closeModal();
+  toast('テンプレートを挿入しました');
+}
+
+function deleteLineTemplate(idx) {
+  var list = window._lineTemplateList || [];
+  list.splice(idx, 1);
+  saveLineTemplates(list).then(function(){
+    toast('削除しました');
+    showLineTemplateModal();
+  });
+}
+
+function addLineTemplate() {
+  var label = (document.getElementById('tmpl_label')||{}).value||'';
+  var text = (document.getElementById('tmpl_text')||{}).value||'';
+  if (!label.trim() || !text.trim()) { toast('ラベルと本文を入力してください', true); return; }
+  var list = window._lineTemplateList || [];
+  list.push({ label: label.trim(), text: text.trim() });
+  saveLineTemplates(list).then(function(){
+    toast('テンプレートを追加しました');
+    showLineTemplateModal();
+  });
 }
 
 // ===================== STORAGE =====================
@@ -3038,6 +3169,16 @@ async function loadContractPdfs(fl) {
 // LINE
 
 // ===================== MATCHING MODULE =====================
+// BEGIN: matching module — データ付け合せ・クチコミ紐付け管理
+// 関連関数: modules.matching / selectMatchCase / linkStore / unlinkStore / saveReviewUnmatchedLink / _rvFuzzyMatch / _rvGetFl
+
+// reviewUnmatchedLinks の値は旧フォーマット（文字列）または新フォーマット（{fl,at,by}）の両方に対応
+function _rvGetFl(links, sname) {
+  var v = links[sname];
+  if (!v) return '';
+  return (typeof v === 'object') ? (v.fl || '') : v;
+}
+
 modules.matching = function() {
   var s = getStore();
   var matched_tab = state.matching.tab || 0;
@@ -3232,6 +3373,8 @@ async function renderLineMessages() {
   // 件数カウント
   var totalUnread = casesWithLatest.filter(function(x){ return x.unread > 0 && !x.hasClam; }).length;
   var totalClam = casesWithLatest.filter(function(x){ return x.hasClam; }).length;
+  // P1: ナビバッジ更新（未対応＋クレームの合計）
+  updateLineNavBadge(totalUnread + totalClam);
 
   // フィルタ適用
   var lf = state.line.listFilter || 'all';
@@ -3282,12 +3425,20 @@ function filterLineCaseList(q) {
 }
 
 async function showLineThread(fl) {
+  // 前のスレッドのロックを解放
+  if (state.line.selectedFL && state.line.selectedFL !== fl) {
+    releaseLineThreadLock(state.line.selectedFL);
+  }
   state.line.selectedFL = fl;
   var c = MASTER_CASES.find(function(x){ return x.fl===fl; });
   if (!c) return;
   var threadEl = document.getElementById('line-thread');
   if (threadEl) threadEl.innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">⏳ 読み込み中...</div>';
-  var msgs = await _loadLineThread(fl);
+  // P2: ロック取得（並行してメッセージ読み込み）
+  var lockResult = { locked: false };
+  var msgs = [];
+  var results = await Promise.all([_loadLineThread(fl), acquireLineThreadLock(fl)]);
+  msgs = results[0]; lockResult = results[1];
   var meoUrl = c.stores && c.stores[0] ? c.stores[0].meo : '';
   var catColors = {'管理画面':'#dbeafe','写真':'#d1fae5','クチコミ':'#ede9fe','解約':'#fee2e2','請求':'#fef3c7','LINE':'#fce7f3','その他':'#f3f4f6','FunLink返信':'#f0fdf4'};
   var stCls = {'未対応':'badge-red','対応中':'badge-yellow','対応完了':'badge-green','クレーム':'badge-red'};
@@ -3349,7 +3500,15 @@ async function showLineThread(fl) {
       '</div></div>';
   }).join('');
 
+  // P2: ロックバナー
+  var lockBanner = lockResult.locked
+    ? '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;display:flex;align-items:center;gap:8px">'+
+      '<span style="font-size:16px">👤</span>'+
+      '<div><b style="color:#92400e">'+escHtml(lockResult.by)+'</b> が現在このスレッドを確認中です（'+lockResult.at.slice(11,16)+'〜）。重複対応に注意してください。</div></div>'
+    : '';
+
   threadEl.innerHTML =
+    lockBanner +
     // ヘッダー
     '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:12px">' +
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
@@ -3386,9 +3545,11 @@ async function showLineThread(fl) {
     '<div><label>担当者</label><select id="lm_assignee">'+staffOpts+'</select></div></div>' +
     '<div class="form-group"><label>メッセージ内容 <span style="color:#ef4444">*</span></label><textarea id="lm_msg" placeholder="問い合わせ内容..."></textarea></div>' +
     '<div class="form-group"><label>返信案（任意）</label><textarea id="lm_reply" style="min-height:60px" placeholder="送付予定の返信文を入力..."></textarea></div>' +
-    '<div style="display:flex;justify-content:flex-end;gap:8px">' +
+    '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+    '<button class="btn btn-secondary" onclick="showLineTemplateModal()" style="font-size:12px">📋 テンプレート</button>' +
+    '<div style="display:flex;gap:8px">' +
     '<button class="btn btn-secondary" onclick="generateGeminiReply(\''+escHtml(fl)+'\')">✨ AI返信生成</button>' +
-    '<button class="btn btn-primary" onclick="saveLineMsg(\''+escHtml(fl)+'\')">追加</button></div></div>';
+    '<button class="btn btn-primary" onclick="saveLineMsg(\''+escHtml(fl)+'\')">追加</button></div></div></div>';
   // スレッド末尾にスクロール
   threadEl.scrollTop = threadEl.scrollHeight;
   // 最新の顧客メッセージに対して返信候補を表示
@@ -3406,6 +3567,7 @@ function toggleSenderName(val) {
 
 async function markLineDone(id, fl){
   await _sb.from('line_messages').update({ status: '対応完了' }).eq('id', id);
+  _writeLineOpLog(fl || state.line.selectedFL, id, 'done'); // P3: 操作ログ
   _invalidateLmCache(fl);
   showLineThread(fl || state.line.selectedFL);
   toast('完了にしました');
@@ -3433,6 +3595,7 @@ async function saveLineMsg(fl){
 }
 async function deleteLineMsg(id, fl){
   if(!confirm('削除しますか？'))return;
+  _writeLineOpLog(fl || state.line.selectedFL, id, 'deleted'); // P3: 操作ログ（削除前に記録）
   await _sb.from('line_messages').delete().eq('id', id);
   _invalidateLmCache(fl);
   showLineThread(fl || state.line.selectedFL);
