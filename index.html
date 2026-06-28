@@ -1345,7 +1345,7 @@ modules.dashboard = function() {
 
   document.getElementById('content').innerHTML =
     alertHtml +
-    '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">' +
+    '<div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">' +
     // 契約中件数 → 案件マスタへ
     '<div class="kpi-card" style="cursor:pointer" onclick="loadModule(\'master\')">' +
     '<div class="kpi-label">契約中件数</div>' +
@@ -1376,6 +1376,19 @@ modules.dashboard = function() {
     '<div class="kpi-value" id="kpi-line-val">' + (_lmSummary ? lineUnread+lineClam : '…') + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
     '<div class="kpi-sub" id="kpi-line-sub">' + (_lmSummary ? (lineClam?'クレーム'+lineClam+'件含む':'対応待ち') : '読み込み中...') + '</div>' +
     '<div class="kpi-action">→ LINE対応を開く</div></div>' +
+    // クチコミ紐付け率 -> データ付け合せへ
+    // 算出: reviewUnmatchedLinks の紐付済み件数 / REVIEW_UNMATCHED.length * 100（小数点以下切り捨て）
+    (function(){
+      var _rvLk = s.reviewUnmatchedLinks || {};
+      var _rvLkd = Object.keys(_rvLk).filter(function(k){ return !!_rvLk[k]; }).length;
+      var _mPct = Math.floor(_rvLkd / REVIEW_UNMATCHED.length * 100);
+      var _mColor = _mPct >= 80 ? 'green' : (_mPct >= 50 ? 'yellow' : 'red');
+      return '<div class="kpi-card '+_mColor+'" style="cursor:pointer" onclick="state.matching.tab=1;loadModule(\'matching\')">' +
+        '<div class="kpi-label">クチコミ紐付け率</div>' +
+        '<div class="kpi-value">'+_mPct+'<span style="font-size:14px;color:#6b7280">%</span></div>' +
+        '<div class="kpi-sub">'+_rvLkd+' / '+REVIEW_UNMATCHED.length+' 店舗 紐付済</div>' +
+        '<div class="kpi-action">→ データ付け合せへ</div></div>';
+    })() +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">' +
     // チャーンスコア（スコア = 接触空白×0.5 + 未タスク×10 + クチコミ停止月×15）
@@ -3179,6 +3192,25 @@ function _rvGetFl(links, sname) {
   return (typeof v === 'object') ? (v.fl || '') : v;
 }
 
+function _rvFuzzyMatch(storeName) {
+  var norm = function(s) {
+    return (s || "").replace(/[店院所号室]/g, "").replace(/\s+/g, "").toLowerCase();
+  };
+  var q = norm(storeName);
+  if (q.length < 2) return [];
+  var cands = [];
+  MASTER_CASES.forEach(function(mc) {
+    (mc.stores || []).forEach(function(st) {
+      var sn = norm(st.sname || "");
+      if (!sn) return;
+      if (sn.indexOf(q) >= 0 || q.indexOf(sn) >= 0) {
+        cands.push({ fl: mc.fl, name: mc.name, sname: st.sname || "" });
+      }
+    });
+  });
+  return cands.slice(0, 3);
+}
+
 modules.matching = function() {
   var s = getStore();
   var matched_tab = state.matching.tab || 0;
@@ -3229,7 +3261,24 @@ modules.matching = function() {
       return true;
     });
     var rvRows = dispList.map(function(sname) {
-      var linkedFl = rvLinks[sname] || '';
+      var linkedFl = _rvGetFl(rvLinks, sname);
+      // 根拠記録表示
+      var rawEntry = rvLinks[sname];
+      var linkMeta = (rawEntry && typeof rawEntry === 'object' && rawEntry.at)
+        ? '<div style="font-size:10px;color:#9ca3af;margin-top:2px">\u8a18\u9332: '+rawEntry.at+'</div>' : '';
+      // \u30d5\u30a1\u30b8\u30fc\u30de\u30c3\u30c1\u5019\u88dc\uff08\u672a\u7d10\u4ed8\u3051\u306e\u307f\uff09
+      var suggestHtml = '';
+      if (!linkedFl && !isSkip) {
+        var cands = _rvFuzzyMatch(sname);
+        if (cands.length) {
+          suggestHtml = '<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">' +
+            cands.map(function(c) {
+              return '<button onclick="saveReviewUnmatchedLink(\''+escHtml(sname)+'\',\''+escHtml(c.fl)+'\');state.matching.tab=1;modules.matching()" ' +
+                'style="font-size:10px;padding:2px 7px;border:1px solid #bfdbfe;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer" ' +
+                'title="'+escHtml(c.sname)+'">'+escHtml(c.fl)+'</button>';
+            }).join('') + '</div>';
+        }
+      }
       var isSkip = linkedFl === '_skip_';
       var linkedCase = (!isSkip && linkedFl) ? MASTER_CASES.find(function(c){ return c.fl === linkedFl; }) : null;
       var statusIcon = isSkip ? '<span style="color:#f59e0b;font-size:13px">—</span>' :
@@ -3242,6 +3291,7 @@ modules.matching = function() {
           'data-sname="'+escHtml(sname)+'" ' +
           'onchange="saveReviewUnmatchedLink(this.getAttribute(\'data-sname\'),_rvFindFl(this.value));state.matching.tab=1;modules.matching()" ' +
           'style="font-size:12px;width:240px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px">'+
+          linkMeta + suggestHtml +
         '</td>' +
         '<td style="padding:7px 10px;font-size:12px;color:#6b7280">'+escHtml(linkedCase?linkedCase.name:(isSkip?'FLなし':''))+'</td>' +
         '<td style="padding:7px 10px">' +
@@ -4060,7 +4110,7 @@ function _rvFlActual(fl) {
   // 手動リンクされた未マッチ店舗も加算
   var links = (getStore().reviewUnmatchedLinks) || {};
   Object.keys(links).forEach(function(sname) {
-    if (links[sname] !== fl) return;
+    if (_rvGetFl(links, sname) !== fl) return;
     var sk = _reviewKpi && _reviewKpi.by_store && _reviewKpi.by_store[sname];
     if (sk) base += _rvStoreActual(sk, _rvPeriod);
   });
@@ -5218,7 +5268,7 @@ function _buildUnmatchedBody() {
     return true;
   });
   var rows = list.map(function(sname) {
-    var linkedFl = links[sname] || '';
+    var linkedFl = _rvGetFl(links, sname);
     var isSkip = linkedFl === '_skip_';
     var linkedCase = (!isSkip && linkedFl) ? MASTER_CASES.find(function(c){ return c.fl === linkedFl; }) : null;
     var curText = linkedCase ? (linkedFl + ' ' + linkedCase.name) : (isSkip ? '' : '');
@@ -5283,7 +5333,8 @@ function saveReviewUnmatchedLink(sname, fl) {
   var s = getStore();
   if (!s.reviewUnmatchedLinks) s.reviewUnmatchedLinks = {};
   if (fl) {
-    s.reviewUnmatchedLinks[sname] = fl;
+    // \u6839\u62e0\u8a18\u9332: \u8ab0\u304c\u30fb\u3044\u3064\u30fb\u3069\u306e\u65b9\u6cd5\u3067\u7d10\u4ed8\u3051\u305f\u304b\u3092JSONB\u306b\u4fdd\u5b58\uff08\u76e3\u67fb\u30ed\u30b0\uff09
+    s.reviewUnmatchedLinks[sname] = { fl: fl, at: today(), by: 'manual' };
   } else {
     delete s.reviewUnmatchedLinks[sname];
   }
