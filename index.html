@@ -981,7 +981,7 @@ var state = {
   support: { selectedFL: null },
   payment: { tab:0, statusFilter:'全て', ymFilter:'', fromYm:'', toYm:'', msFrom:'', msTo:'' },
   contractReport: { fy:null, staff:'全て' },
-  learning: { catFilter: '全て', viewId: null }
+  learning: { catFilter: '全て', diffFilter: '全て', search: '', sort: 'new', viewId: null }
 };
 var modules = {};
 
@@ -6389,49 +6389,213 @@ function saveRenewalAction(fl,storeId){
 
 // LEARNING
 modules.learning = function() { renderLearningModule(); };
+
+function _getLearningDiffBadge(d) {
+  return d==='入門'?'badge-green':d==='基礎'?'badge-blue':d==='応用'?'badge-yellow':'badge-purple';
+}
+function getYoutubeEmbedUrl(url) {
+  if (!url) return '';
+  var m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_\-]+)/);
+  return m ? 'https://www.youtube.com/embed/' + m[1] : '';
+}
+function seedLearningItems() {
+  return [
+    {id:'seed01',title:'MEOとは？SEOとの違いと基礎知識',category:'MEO基礎',difficulty:'入門',minutes:5,tags:'MEO,基礎,Googleマップ',videoUrl:'',url:'',createdAt:'2026-06-01',read:false,
+     content:'MEO（Map Engine Optimization）とは、Googleマップ上での上位表示を目指す施策です。\n\n■ SEOとの違い\n・SEO：Google検索の自然検索結果を最適化\n・MEO：Googleマップ／ローカルパックを最適化\n\nローカル検索（「渋谷 美容院」など）では通常検索結果より上に地図とビジネス情報が表示されます。この「ローカルパック（上位3枠）」への表示がMEOの目標です。\n\n■ なぜMEOが重要か\n・スマートフォン検索の約半数がローカル検索\n・ローカルパック上位3枠でクリック全体の44%以上を獲得\n・「今すぐ近くで」という来店意図の高いユーザーを集客\n\n■ MEOの主な施策\n1. Googleビジネスプロフィール（GBP）の最適化\n2. クチコミの継続的な獲得・返信\n3. 写真・Googleポストの定期更新\n4. NAP情報（名称・住所・電話番号）の統一'},
+    {id:'seed02',title:'Googleマップのランキング決定3要素',category:'MEO基礎',difficulty:'基礎',minutes:7,tags:'MEO,ランキング,アルゴリズム',videoUrl:'',url:'',createdAt:'2026-06-01',read:false,
+     content:'Googleマップの検索順位は「関連性」「距離」「知名度」の3要素で決まります。\n\n■ 1. 関連性（Relevance）\nユーザーの検索クエリとビジネス情報の一致度。\n→ 施策: カテゴリ・説明文・サービス設定を正確に\n\n■ 2. 距離（Distance）\n検索ユーザーの現在地や指定場所からの距離。\n→ 施策: サービスエリア設定・住所情報の正確化\n\n■ 3. 知名度（Prominence）\nそのビジネスがGoogle・Web全体にどれだけ知られているか。\n→ 施策: クチコミ数・評価の向上、被リンク・引用（サイテーション）増加\n\n■ 重要ポイント\n距離は変えられないが、関連性と知名度は施策で改善可能。特にクチコミの数・評価・返信率が複合的にランキングへ影響します。'},
+    {id:'seed03',title:'MEO対策のKPI設定と効果測定方法',category:'MEO基礎',difficulty:'基礎',minutes:8,tags:'MEO,KPI,効果測定,インプレッション',videoUrl:'',url:'',createdAt:'2026-06-02',read:false,
+     content:'MEO対策の成果を正しく測定するためのKPIを設定しましょう。\n\n■ GBPインサイトの主要指標\n1. インプレッション（表示回数）：認知の広がり\n2. クリック数：Webサイト・電話・ルート案内の合計\n3. 通話クリック：問い合わせ意向の強いシグナル\n4. ルート案内リクエスト：来店意向の最も強い指標\n\n■ 追跡すべきMEO KPI\n・クチコミ件数（月次増加数）\n・平均評価（目標: 4.0以上）\n・返信率（目標: 100%）\n・写真投稿数（月次）\n・ターゲットキーワードの上位3位以内表示\n\n■ FunLink CMSでの管理\nクチコミKPIタブで月次のクチコミ獲得数・平均評価を管理できます。毎月のExcelインポートで自動集計されます。'},
+    {id:'seed04',title:'NAP情報統一の重要性とチェック方法',category:'MEO基礎',difficulty:'基礎',minutes:6,tags:'NAP,一貫性,サイテーション',videoUrl:'',url:'',createdAt:'2026-06-02',read:false,
+     content:'NAP（Name/Address/Phone）情報の統一はMEO対策の基盤です。\n\n■ NAPとは\n・N = Name（店舗・ビジネス名）\n・A = Address（住所）\n・P = Phone（電話番号）\n\n■ チェックすべき場所\n1. Googleビジネスプロフィール\n2. 自社Webサイト（フッター・問い合わせページ）\n3. 食べログ・ホットペッパー・ぐるなびなど\n4. 業種別ポータルサイト・SNS各種\n\n■ よくある不一致例\n・ビル名の有無（「〇〇ビル3F」が一部で省略）\n・電話番号のハイフンの有無\n・株式会社と（株）の表記ゆれ\n・旧店舗名が一部に残っている\n\n■ 対応\nFunLink顧客管理で各店舗の基本情報を登録し、クライアントに正確なNAP情報の確認を依頼。変更時は全プラットフォームを一斉更新するよう案内しましょう。'},
+    {id:'seed05',title:'MEO対策のよくある誤解と注意点',category:'MEO基礎',difficulty:'入門',minutes:5,tags:'MEO,注意点,NG例',videoUrl:'',url:'',createdAt:'2026-06-03',read:false,
+     content:'MEO対策でよく誤解されているポイントをまとめます。\n\n■ 誤解1：「すぐ1位になれる」\n→ 実際は3〜6ヶ月かかることが多い。クチコミが積み上がるほど効果が出る。\n\n■ 誤解2：「クチコミを買えばよい」\n→ Googleは不正クチコミを検出・削除。利用規約違反でアカウント停止リスクあり。\n\n■ 誤解3：「GBPは一度設定すれば終わり」\n→ 継続的な投稿・情報更新・クチコミ返信が重要。放置すると順位低下の原因に。\n\n■ 誤解4：「写真は少なくてOK」\n→ 写真が多く高品質なほどインプレッションが増加。最低10枚以上を目標に。\n\n■ クライアントへの説明ポイント\n「継続的な取り組みが最重要」と伝え、長期的な信頼関係を構築しましょう。'},
+    {id:'seed06',title:'GBPオーナー確認の手順と注意点',category:'Googleビジネス',difficulty:'基礎',minutes:8,tags:'GBP,オーナー確認,設定',videoUrl:'',url:'',createdAt:'2026-06-03',read:false,
+     content:'Googleビジネスプロフィール（GBP）のオーナー確認はMEO対策の第一歩です。\n\n■ 主な確認方法3種\n1. ハガキ確認（最一般的）：登録住所にコード付きハガキ。通常2〜3週間\n2. 電話確認：登録電話にGoogleから確認コードが届く。即時完了\n3. メール確認：Googleアカウント関連メールに送信される場合あり\n\n■ よくあるトラブルと対処\n・ハガキが届かない → 住所確認・再送申請（最大3回）\n・すでにオーナーがいる → 「オーナー権限をリクエスト」から申請\n・複数店舗あり → ビジネスグループで一括管理\n\n■ 代理確認の注意点\nFunLinkがクライアントの代わりに確認する場合は、必ずクライアントのGoogleアカウントでログインして作業すること。FunLinkアカウントで確認するとトラブルの原因になります。'},
+    {id:'seed07',title:'カテゴリ設定と属性の最適化',category:'Googleビジネス',difficulty:'基礎',minutes:6,tags:'GBP,カテゴリ,属性,最適化',videoUrl:'',url:'',createdAt:'2026-06-04',read:false,
+     content:'GBPのカテゴリ設定はランキングに直接影響する重要な設定です。\n\n■ メインカテゴリの選び方\n・ビジネスの主要サービスを最も正確に表す1つを選ぶ\n・より具体的なカテゴリを選択（例: 「美容院」より「ヘアサロン」）\n・ユーザーが検索しそうなキーワードに対応するカテゴリを意識\n\n■ サブカテゴリ（最大10個）\n・メインカテゴリを補完するサービスを設定\n・例: メイン「日本料理レストラン」→ サブ「割烹料理店」「宴会場」\n\n■ 属性の設定\n・支払い方法（現金/カード/QR決済）\n・バリアフリー対応・駐車場・Wi-Fi・予約可否など\n\n■ 業種別カテゴリ例\n・飲食: 「レストラン」「カフェ」「居酒屋」\n・美容: 「美容院」「ネイルサロン」「エステサロン」\n・医療: 「歯科医院」「整骨院」「クリニック」'},
+    {id:'seed08',title:'写真・動画投稿のベストプラクティス',category:'Googleビジネス',difficulty:'基礎',minutes:7,tags:'GBP,写真,動画,投稿',videoUrl:'',url:'',createdAt:'2026-06-04',read:false,
+     content:'写真・動画の充実はクリック率とコンバージョン率の向上に直結します。\n\n■ 必須の写真カテゴリ\n1. プロフィール写真（ロゴ）- 正方形推奨\n2. カバー写真（店内/外観）- 16:9推奨\n3. 外観写真（昼・夜・各角度）\n4. 内観写真（席・内装・雰囲気）\n5. 商品・メニュー写真\n6. スタッフ写真（顔が見えると信頼感UP）\n\n■ 写真の品質基準\n・最低解像度: 720×720px以上・サイズ: 10KB〜5MB\n・形式: JPG/PNG・明るく鮮明なもの（暗い・ぼやけた写真はNG）\n\n■ 投稿頻度\n・最低月2〜4枚の新規追加\n・季節・イベントに合わせた写真で鮮度を保つ\n\n■ 動画について\n・30秒以内・100MB以下\n・店内雰囲気・料理・サービスの動画が効果的\n\n■ ポイント\n写真枚数が多いほどインプレッションが増加します。まずは10枚以上を目標に追加しましょう。'},
+    {id:'seed09',title:'Googleポスト（投稿機能）の効果的な活用',category:'Googleビジネス',difficulty:'応用',minutes:6,tags:'GBP,Googleポスト,投稿,プロモーション',videoUrl:'',url:'',createdAt:'2026-06-05',read:false,
+     content:'Googleポストは、GBPから直接情報発信できる機能です。\n\n■ Googleポストの種類\n1. 最新情報（通常投稿）- 最もよく使う\n2. イベント - 期間限定の催事・キャンペーン\n3. 特典 - クーポン・割引情報\n4. 商品 - 単一商品の紹介\n\n■ 効果的な投稿内容\n・季節のおすすめメニュー・商品\n・限定キャンペーン（期間・条件を明記）\n・受賞・メディア掲載のお知らせ\n・スタッフ紹介・イベント告知\n\n■ 投稿のコツ\n・文字数: 1,500文字まで（表示は最初の100文字程度）\n・画像: 1枚添付推奨\n・CTAボタン: 「予約する」「詳細を見る」「購入する」\n・投稿有効期間: 7日間（イベントは終了日まで）\n\n■ 投稿頻度\n週1〜2回が理想。同じ内容の繰り返しは避ける。'},
+    {id:'seed10',title:'営業時間・特別営業時間の正確な管理',category:'Googleビジネス',difficulty:'基礎',minutes:5,tags:'GBP,営業時間,特別営業時間,祝日',videoUrl:'',url:'',createdAt:'2026-06-05',read:false,
+     content:'営業時間の正確な管理はユーザー体験とGoogleの信頼度に直結します。\n\n■ 通常営業時間の設定\n・曜日ごとに詳細に設定（定休日も明示）\n・ランチ/ディナーなど複数時間帯の設定も可能\n\n■ 特別営業時間（重要）\n・祝日は必ず特別営業時間を設定する\n・設定しないと「祝日は通常営業時間」とみなされる\n・年末年始・お盆・GWも事前に設定\n\n■ 臨時休業\n・当日の急な休業はGBPから「臨時休業」を設定\n・設定しないと来店して閉まっていてクチコミ低評価につながる\n\n■ 月次チェックポイント\n「来月の特別営業日はありますか？」をMTG確認事項として定型化しましょう。FunLink CMSのMTG記録に確認事項として追加しておくと漏れが防げます。'},
+    {id:'seed11',title:'クチコミ獲得の基本フローと依頼テンプレート',category:'クチコミ対策',difficulty:'基礎',minutes:8,tags:'クチコミ,獲得,テンプレート,LINE',videoUrl:'',url:'',createdAt:'2026-06-06',read:false,
+     content:'クチコミは「お願いする仕組み」を作ることが最重要です。\n\n■ クチコミ獲得の基本フロー\n1. サービス完了直後にURLを渡す\n2. LINEやSMSでフォローアップ（退店後1〜2時間以内）\n3. 投稿があったら迅速に返信\n4. 月次で件数・評価を確認\n\n■ 口頭依頼トーク例\n「もしよろしければ、Googleのクチコミに感想を書いていただけると大変助かります。こちらのQRコードから30秒で投稿できます！」\n\n■ LINE依頼テンプレート\n---\nご来店ありがとうございました。\nよろしければ以下のリンクからGoogleクチコミへのご投稿をお願いできますでしょうか。\n▶ [クチコミ投稿リンク]\nサービス向上に役立てます。よろしくお願いいたします！\n---\n\n■ Googleポリシー上の禁止事項\n・金品・割引でのクチコミ誘導はNG（利用規約違反）\n・「5つ星をつけてください」という指定はNG\n・自作自演クチコミはアカウント停止リスク'},
+    {id:'seed12',title:'クチコミ返信の書き方と禁止事項',category:'クチコミ対策',difficulty:'基礎',minutes:7,tags:'クチコミ,返信,テンプレート,低評価',videoUrl:'',url:'',createdAt:'2026-06-06',read:false,
+     content:'クチコミへの返信はGoogleのランキングと潜在顧客の印象に影響します。\n\n■ 高評価（4〜5★）への返信テンプレート\n---\n[名前]様、素晴らしいご感想をいただきありがとうございます！\n[コメントへの具体的な言及]とのお言葉、スタッフ一同大変励みになります。\nまたのご来店を心よりお待ちしております。\n---\n\n■ 低評価（1〜3★）への返信の基本\n1. まず謝罪・共感（言い訳は後）\n2. 具体的な改善策や経緯の説明\n3. 直接連絡先の案内\n4. 締めくくりは前向きに\n\n■ 絶対NGな返信\n・感情的な反論・言い訳\n・個人情報（来店日・金額）の言及\n・「この投稿は嘘です」など否定\n\n■ 返信タイミング\n・高評価: 1週間以内\n・低評価: できれば24〜48時間以内'},
+    {id:'seed13',title:'低評価クチコミへの対応マニュアル',category:'クチコミ対策',difficulty:'応用',minutes:10,tags:'クチコミ,低評価,クレーム,削除申請',videoUrl:'',url:'',createdAt:'2026-06-07',read:false,
+     content:'低評価クチコミへの対応はクライアントにとって最もデリケートな課題です。\n\n■ 種類別対応方針\n\n【A】正当な不満（実際にあった問題）\n→ 誠実に謝罪 → 改善策を明示 → 直接連絡を促す\n\n【B】誤解・勘違い\n→ 「お気持ちはよく理解できます」で始めて事実を丁寧に説明\n\n【C】明らかに悪意ある投稿・競合からの嫌がらせ\n→ Googleに「不適切なクチコミ」として報告\n→ 返信で事実と異なる旨を冷静に記載\n→ 時間をかけて正当なクチコミを増やし希薄化\n\n■ Googleへの削除申請が通るケース\n・個人情報の掲載・露骨な誹謗中傷・差別的表現\n・競合による嫌がらせ（証拠が必要）・スパム・虚偽情報\n\n■ 削除申請方法\nGBP管理画面 → 該当クチコミ → 「クチコミを報告」\n→ 通常5〜10営業日で判定\n\n■ クライアントへの説明ポイント\n「低評価1件は、誠実な返信と今後の高評価10件で十分カバーできます」'},
+    {id:'seed14',title:'クチコミ依頼チャネル別効果比較',category:'クチコミ対策',difficulty:'応用',minutes:7,tags:'クチコミ,LINE,QR,効果,依頼',videoUrl:'',url:'',createdAt:'2026-06-07',read:false,
+     content:'複数のチャネルを組み合わせることで獲得率が上がります。\n\n■ チャネル別特徴\n\n【対面依頼＋QRコード】効果: ★★★★★\n→ 満足度が高い瞬間に直接お願い。QRカードを用意して手渡し。\n\n【LINE公式アカウント】効果: ★★★★☆\n→ 退店後1〜2時間以内に送信。自動化も可能。\n\n【レシート・領収書にURL記載】効果: ★★★☆☆\n→ 追加コストほぼなし。短縮URLかQRコードで見やすく。\n\n【SMS/メール送信】効果: ★★☆☆☆\n→ 開封率が低い。来店直後のLINEの方が効果的。\n\n■ 業種別おすすめ組み合わせ\n・飲食: 対面＋QRカード＋レシート記載\n・美容: 対面＋LINE＋施術後フォロー\n・クリニック: 受付カード＋LINE\n・整骨院: 対面＋LINE公式アカウント'},
+    {id:'seed15',title:'ローカルSEOとMEOの関係・連携方法',category:'SEO',difficulty:'基礎',minutes:7,tags:'ローカルSEO,MEO,Webサイト,連携',videoUrl:'',url:'',createdAt:'2026-06-08',read:false,
+     content:'MEOとローカルSEOは相互補完する関係にあります。\n\n■ MEO vs ローカルSEO\n・MEO: Googleマップ（ローカルパック）の表示最適化\n・ローカルSEO: Google自然検索結果の上位表示最適化\n\n■ 相乗効果を生む施策\n1. GBPとWebサイトのNAP情報を完全一致させる\n2. Webサイトに「エリア名+サービス名」コンテンツを追加\n3. GBPのWebサイトURLに適切なランディングページを設定\n4. Googleマップの埋め込み\n5. 構造化データ（LocalBusiness スキーマ）の実装\n\n■ WebサイトでできるローカルSEO施策\n・タイトルタグに地域名を含める（例:「渋谷の美容院 | 〇〇サロン」）\n・所在地情報をフッターに記載\n・Google Mapsの埋め込み\n\n■ クライアントへの付加価値提案\nMEO対策に加えてWebサイトのローカルSEO対策も提案することで差別化できます。'},
+    {id:'seed16',title:'サイテーション（引用）を増やしてMEOを強化する',category:'SEO',difficulty:'応用',minutes:8,tags:'サイテーション,引用,NAP,被リンク',videoUrl:'',url:'',createdAt:'2026-06-08',read:false,
+     content:'サイテーションとはWeb上で企業のNAP（名称・住所・電話番号）が言及されることです。\n\n■ なぜサイテーションが重要か\nGoogleはWeb全体でのNAP情報の一貫性を確認します。多くの信頼できるサイトでNAPが一致しているほど評価が上がります。\n\n■ 主要サイテーション源（優先順）\n・食べログ（飲食業）・ホットペッパー（美容/グルメ）\n・じゃらん/一休（宿泊・レストラン）・エキテン（各業種）・Yahoo!ロコ\n\n■ 業種別\n・整骨院: 接骨院ナビ、EPARKカラダファクトリー\n・美容室: ミニモ、ビューティーパーク\n\n■ サイテーション管理のポイント\n1. 全プラットフォームのNAP情報を統一する\n2. 定期的に情報の正確性を確認・更新\n3. 廃止されたアカウントは削除申請\n\n■ チェック方法\nGoogleで「店舗名」を検索して引用箇所を確認。'},
+    {id:'seed17',title:'MEO商談の進め方と提案トーク例',category:'営業',difficulty:'基礎',minutes:10,tags:'営業,商談,提案,トーク例',videoUrl:'',url:'',createdAt:'2026-06-09',read:false,
+     content:'MEOサービス商談を成功させるための基本フローと実践トーク例です。\n\n■ 商談フロー\n1. 現状確認（GBP状況・クチコミ件数・競合比較）\n2. 課題提示（「こんな機会損失が起きています」）\n3. 解決策提案（FunLinkのサービス内容）\n4. 実績紹介（近隣の成功事例）\n5. プラン提示・クロージング\n\n■ 現状確認の質問例\n「現在Googleマップに御社は表示されていますか？」\n「クチコミは月に何件くらい来ていますか？」\n「競合の〇〇さんはクチコミが●件ありますが、ご存知でしたか？」\n\n■ よく出る反論と切り返し\n反論「Googleは無料でできるのでは？」\n→「設定は無料ですが、継続的な運用・クチコミ管理・分析まで行うのが我々のサービスです。」\n\n反論「効果が出るか不安」\n→「近くの〇〇様は3ヶ月でクチコミが●件増え、問い合わせが●倍になりました。」\n\n■ クロージング\n「まずは3ヶ月お試しで始めませんか？」が入りやすい。'},
+    {id:'seed18',title:'契約後オンボーディングの標準手順',category:'営業',difficulty:'基礎',minutes:8,tags:'オンボーディング,契約後,初期設定,CS',videoUrl:'',url:'',createdAt:'2026-06-09',read:false,
+     content:'契約後の初期対応がサービス品質と継続率を決めます。\n\n■ Week1: 情報収集・初期設定\n□ GBPアクセス権限の確認・付与\n□ 店舗基本情報の確認（NAP・営業時間・カテゴリ）\n□ 現在のクチコミ件数・平均評価の記録\n□ 写真の現状確認・追加必要枚数の把握\n\n■ Week2: 最適化実施\n□ GBP基本設定の最適化（カテゴリ・説明文・サービス）\n□ 写真追加（最低10枚）\n□ クチコミ依頼の導線設置（QRコード作成・LINE設定）\n□ Googleポストの初回投稿\n\n■ Month1: 定着化\n□ クチコミ依頼フローの定着支援\n□ 初回クチコミへの返信サポート\n□ 月次レポートの初回作成・共有\n\n■ オンボーディングで必ず聞く情報\n・クチコミ依頼にLINEを使えるか\n・決裁者と現場担当者の連絡先\n・既存Webサイト/SNSのURL'},
+    {id:'seed19',title:'継続率を上げる月次CSの進め方',category:'営業',difficulty:'応用',minutes:9,tags:'CS,継続率,解約防止,月次レポート',videoUrl:'',url:'',createdAt:'2026-06-10',read:false,
+     content:'継続率はMRR安定の要。月次CSの質が解約率を左右します。\n\n■ 月次CS連絡の目的\n1. 成果の可視化（クチコミ増加・順位変動をデータで伝える）\n2. 課題の早期発見・解決\n3. 次月の施策提案\n4. 関係性の強化\n\n■ 月次連絡のコンテンツ（推奨）\n□ 先月のクチコミ件数・平均評価\n□ 前月比・目標達成率\n□ 投稿・写真の追加状況\n□ 来月の施策提案\n□ 特別営業時間・イベントの確認\n\n■ レポートを使ったトーク例\n「先月はクチコミが●件増え、累計●件になりました。競合の〇〇さんは●件なので、あと●件で並べます。」\n\n■ 解約サインの早期発見\n・返信が遅くなる・「少し考えたい」という発言\n・GBPのアクセス権限が急に外れる\n・経営者本人ではなくスタッフが対応するように\n\n■ 解約防止の対処\n早い段階で「何か不満はありますか？」と直接聞くことが重要。'},
+    {id:'seed20',title:'FunLink CMS 基本操作ガイド',category:'ツール操作',difficulty:'入門',minutes:8,tags:'FunLink,CMS,操作,基本',videoUrl:'',url:'',createdAt:'2026-06-10',read:false,
+     content:'FunLink CMS（このシステム）の主要機能と操作方法をまとめます。\n\n■ 主要モジュール一覧\n\n【ダッシュボード】KPIカード: 契約数・MRR・チャーン率・未収金額\n\n【案件マスタ】全契約案件の一覧表示。ステータス・担当者・プランでフィルタ。案件詳細モーダル: 店舗情報・クチコミ・LINE・契約PDF\n\n【クチコミ管理】店舗別クチコミKPI（月次推移グラフ）・目標設定・施策記録・クライアント向けレポート生成\n\n【LINE対応】顧客別LINEメッセージ管理・AI自動返信機能・未返信一覧\n\n【タスク管理】カレンダー表示 / リスト表示・カテゴリ・担当者フィルタ\n\n■ よく使う操作\n・案件検索: 案件マスタ画面上部の検索バー\n・クチコミKPI確認: クチコミ管理 → 案件を選択\n・月次レポート生成: クチコミ管理 → 案件詳細 → クライアントレポートタブ\n\n■ データ保存について\nデータはSupabase（クラウドDB）に自動保存されます。ブラウザを閉じても消えません。'},
+    {id:'seed21',title:'クチコミKPI Excelインポートの手順',category:'ツール操作',difficulty:'基礎',minutes:6,tags:'クチコミ,KPI,Excel,インポート',videoUrl:'',url:'',createdAt:'2026-06-11',read:false,
+     content:'MEOダッシュボードからExcelをエクスポートし、FunLink CMSにインポートする手順です。\n\n■ インポート手順\n1. FunLink CMS → クチコミ管理 を開く\n2. 対象の案件を選択\n3. 「📥 実績インポート」ボタンをクリック\n4. MEO-DashからダウンロードしたExcelファイルを選択\n5. プレビューで内容確認 → 「インポート実行」\n\n■ インポート後の確認事項\n□ 月次クチコミ件数が正しく取り込まれているか\n□ 平均評価が更新されているか\n□ 未マッチの店舗がないか（店舗名の表記ゆれで発生しやすい）\n\n■ よくあるエラーと対処\n・「店舗が見つかりません」→ 店舗名の表記がMEO-Dashと異なる。手動でマッピング設定\n・「データ形式エラー」→ Excel列が想定と異なる。ダウンロード設定を確認\n\n■ 月次作業スケジュール\n月初5日まで: 全クライアントのExcelダウンロード完了\n月初7日まで: CMSへのインポート完了\n月初10日まで: 月次レポートを各クライアントに送付'},
+    {id:'seed22',title:'LINE対応機能の活用とAI返信の使い方',category:'ツール操作',difficulty:'基礎',minutes:7,tags:'LINE,AI返信,自動化,FunLink',videoUrl:'',url:'',createdAt:'2026-06-11',read:false,
+     content:'FunLink CMSのLINE対応機能を使ったCS効率化の方法です。\n\n■ 基本操作フロー\n1. サイドバー「LINE対応」をクリック\n2. 案件リストから対応したい顧客を選択\n3. 受信メッセージを確認\n4. 「AI返信生成」ボタンで返信文を自動生成\n5. 内容を確認・修正 → コピーして送信\n\n■ AI返信機能の特徴\n・FunLinkのカスタマーサポート担当として自然な返信文を生成\n・よくある質問（クチコミ依頼方法・MEO順位・料金確認等）に対応\n・返信文は必ず内容を確認してから使用\n\n■ 未返信管理\n・「未返信」フィルタで対応が必要なメッセージを素早く確認\n・対応時間の目安: 平日10:00〜19:00 / 2時間以内推奨\n\n■ 注意点\n・AI生成の返信文に個人情報・金額が含まれていないか確認\n・クレームや複雑な問い合わせはAI返信を使わず手動で作成'}
+  ];
+}
+
 function renderLearningModule(){
   var s=getStore();var ls=state.learning;
   var cats=['全て','MEO基礎','Googleビジネス','クチコミ対策','SEO','営業','ツール操作','その他'];
+  var diffs=['全て','入門','基礎','応用'];
+  if (!s.learningItems||s.learningItems.length===0){s.learningItems=seedLearningItems();saveStore(s);}
+
   if(ls.viewId){
     var item=s.learningItems.find(function(x){return x.id===ls.viewId;});
     if(item){
+      if(!item.read){item.read=true;saveStore(s);}
+      var embedUrl=getYoutubeEmbedUrl(item.videoUrl||'');
+      var dc=_getLearningDiffBadge(item.difficulty||'');
+      var allItems2=s.learningItems.slice();
+      var curIdx=allItems2.findIndex(function(x){return x.id===ls.viewId;});
+      var prevId=curIdx>0?allItems2[curIdx-1].id:null;
+      var nextId=curIdx<allItems2.length-1?allItems2[curIdx+1].id:null;
       document.getElementById('content').innerHTML=
-        '<div class="card"><div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><button class="btn btn-secondary btn-sm" onclick="state.learning.viewId=null;modules.learning()">← 一覧に戻る</button><h2 style="font-size:16px;font-weight:700">'+escHtml(item.title)+'</h2><span class="badge badge-blue">'+escHtml(item.category)+'</span>'+(item.read?'<span class="badge badge-green">既読</span>':'')+'</div>' +
-        '<div style="white-space:pre-wrap;font-size:14px;line-height:1.8;color:#374151">'+escHtml(item.content)+'</div>' +
-        '<div style="margin-top:16px">'+(item.tags?item.tags.split(',').map(function(t){return '<span class="tag">'+escHtml(t.trim())+'</span>';}).join(''):'')+'</div>' +
-        '<div style="margin-top:16px;display:flex;gap:8px"><button class="btn btn-success btn-sm" onclick="markLearningRead(\''+escHtml(item.id)+'\')">✓ 既読にする</button><button class="btn btn-danger btn-sm" onclick="deleteLearning(\''+escHtml(item.id)+'\')">削除</button></div>' +
-        '</div>';
+        '<div style="max-width:840px">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap">'+
+          '<button class="btn btn-secondary btn-sm" onclick="state.learning.viewId=null;modules.learning()">← 一覧に戻る</button>'+
+          (prevId?'<button class="btn btn-secondary btn-sm" onclick="state.learning.viewId=\''+escHtml(prevId)+'\';modules.learning()">‹ 前へ</button>':'')+
+          (nextId?'<button class="btn btn-secondary btn-sm" onclick="state.learning.viewId=\''+escHtml(nextId)+'\';modules.learning()">次へ ›</button>':'')+
+          '<div style="flex:1"></div>'+
+          '<button class="btn btn-secondary btn-sm" onclick="openLearningEditForm(\''+escHtml(item.id)+'\')">✏️ 編集</button>'+
+          '<button class="btn btn-danger btn-sm" onclick="deleteLearning(\''+escHtml(item.id)+'\')">削除</button>'+
+        '</div>'+
+        '<div class="card">'+
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
+            '<span class="badge badge-blue">'+escHtml(item.category)+'</span>'+
+            (item.difficulty?'<span class="badge '+dc+'">'+escHtml(item.difficulty)+'</span>':'')+
+            (item.minutes?'<span style="font-size:12px;color:#6b7280">⏱ '+escHtml(String(item.minutes))+'分</span>':'')+
+            '<span class="badge '+(item.read?'badge-green':'badge-gray')+'">'+(item.read?'✓ 既読':'未読')+'</span>'+
+            '<span style="font-size:12px;color:#9ca3af;margin-left:auto">'+escHtml(item.createdAt||'')+'</span>'+
+          '</div>'+
+          '<h2 style="font-size:18px;font-weight:700;color:#1f2937;margin-bottom:16px">'+escHtml(item.title)+'</h2>'+
+          (embedUrl?'<div style="margin-bottom:16px"><iframe width="100%" height="360" src="'+escHtml(embedUrl)+'" frameborder="0" allowfullscreen style="border-radius:8px"></iframe></div>':'')+
+          '<div style="white-space:pre-wrap;font-size:14px;line-height:1.9;color:#374151;background:#f8fafc;border-radius:8px;padding:16px 18px">'+escHtml(item.content||'')+'</div>'+
+          ((item.tags||'')?'<div style="margin-top:14px">'+item.tags.split(',').filter(Boolean).map(function(t){return '<span class="tag">'+escHtml(t.trim())+'</span>';}).join('')+'</div>':'')+
+          (item.url?'<div style="margin-top:14px"><a href="'+escHtml(item.url)+'" target="_blank" class="btn btn-secondary btn-sm">🔗 外部リンクを開く</a></div>':'')+
+        '</div></div>';
       return;
     }
   }
-  var items=s.learningItems.slice();
-  if(ls.catFilter!=='全て') items=items.filter(function(x){return x.category===ls.catFilter;});
-  items.sort(function(a,b){return (b.createdAt||'').localeCompare(a.createdAt||'');});
-  var catBtns=cats.map(function(c){return '<button class="btn '+(ls.catFilter===c?'btn-primary':'btn-secondary')+' btn-sm" onclick="state.learning.catFilter=\''+c+'\';modules.learning()">'+c+'</button>';}).join('');
+
+  var allItems=s.learningItems.slice();
+  var totalCount=allItems.length;
+  var readCount=allItems.filter(function(x){return x.read;}).length;
+  var pct=totalCount>0?Math.round(readCount/totalCount*100):0;
+  var items=allItems.slice();
+  if(ls.catFilter&&ls.catFilter!=='全て') items=items.filter(function(x){return x.category===ls.catFilter;});
+  if(ls.diffFilter&&ls.diffFilter!=='全て') items=items.filter(function(x){return x.difficulty===ls.diffFilter;});
+  if(ls.search){var q=ls.search.toLowerCase();items=items.filter(function(x){return (x.title||'').toLowerCase().indexOf(q)>=0||(x.content||'').toLowerCase().indexOf(q)>=0||(x.tags||'').toLowerCase().indexOf(q)>=0;});}
+  if(ls.sort==='unread'){items.sort(function(a,b){return (a.read?1:0)-(b.read?1:0)||(b.createdAt||'').localeCompare(a.createdAt||'');});}
+  else if(ls.sort==='cat'){items.sort(function(a,b){return (a.category||'').localeCompare(b.category||'')||(b.createdAt||'').localeCompare(a.createdAt||'');});}
+  else{items.sort(function(a,b){return (b.createdAt||'').localeCompare(a.createdAt||'');});}
+
+  var catBtns=cats.map(function(c){
+    var cnt=c==='全て'?totalCount:allItems.filter(function(x){return x.category===c;}).length;
+    return '<button class="btn '+(ls.catFilter===c?'btn-primary':'btn-secondary')+' btn-sm" onclick="state.learning.catFilter=\''+c+'\';modules.learning()">'+c+' <span style="opacity:.65;font-size:11px">('+cnt+')</span></button>';
+  }).join('');
+  var diffBtns=diffs.map(function(d){
+    return '<button class="btn '+(ls.diffFilter===d?'btn-primary':'btn-secondary')+' btn-sm" onclick="state.learning.diffFilter=\''+d+'\';modules.learning()">'+d+'</button>';
+  }).join('');
   var cards=items.map(function(item){
-    return '<div class="card" style="margin-bottom:10px;padding:14px"><div style="display:flex;align-items:start;justify-content:space-between">' +
-      '<div><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span class="badge badge-blue">'+escHtml(item.category)+'</span>'+(item.read?'<span class="badge badge-green">既読</span>':'<span class="badge badge-gray">未読</span>')+'</div>' +
-      '<div style="font-weight:600;font-size:14px;cursor:pointer;color:#1e40af" onclick="state.learning.viewId=\''+escHtml(item.id)+'\';modules.learning()">'+escHtml(item.title)+'</div>' +
-      '<div style="font-size:12px;color:#9ca3af;margin-top:4px">'+escHtml(item.createdAt)+'</div>' +
-      '<div style="margin-top:6px">'+((item.tags||'').split(',').filter(Boolean).map(function(t){return '<span class="tag">'+escHtml(t.trim())+'</span>';}).join(''))+'</div>' +
-      '</div><div style="display:flex;gap:6px;flex-shrink:0;margin-left:12px">' +
-      '<button class="btn btn-sm btn-secondary" onclick="state.learning.viewId=\''+escHtml(item.id)+'\';modules.learning()">読む</button>' +
-      '<button class="btn btn-sm btn-danger" onclick="deleteLearning(\''+escHtml(item.id)+'\')">削除</button>' +
-      '</div></div></div>';
+    var dc=_getLearningDiffBadge(item.difficulty||'');
+    return '<div class="card" style="margin-bottom:10px;padding:14px;cursor:pointer" onclick="state.learning.viewId=\''+escHtml(item.id)+'\';modules.learning()">'+
+      '<div style="display:flex;align-items:start;justify-content:space-between;gap:10px">'+
+      '<div style="flex:1;min-width:0">'+
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+
+          '<span class="badge badge-blue">'+escHtml(item.category)+'</span>'+
+          (item.difficulty?'<span class="badge '+dc+'">'+escHtml(item.difficulty)+'</span>':'')+
+          (item.videoUrl?'<span class="badge badge-purple">▶ 動画</span>':'')+
+          (item.read?'<span class="badge badge-green">✓ 既読</span>':'<span class="badge badge-gray">未読</span>')+
+        '</div>'+
+        '<div style="font-weight:600;font-size:14px;color:#1e40af;margin-bottom:4px">'+escHtml(item.title)+'</div>'+
+        '<div style="font-size:12px;color:#9ca3af">'+escHtml(item.createdAt||'')+(item.minutes?' · ⏱ '+escHtml(String(item.minutes))+'分':'')+'</div>'+
+        ((item.tags||'')?'<div style="margin-top:6px">'+item.tags.split(',').filter(Boolean).map(function(t){return '<span class="tag">'+escHtml(t.trim())+'</span>';}).join('')+'</div>':'')+
+      '</div>'+
+      '<button class="btn btn-danger btn-sm" style="flex-shrink:0" onclick="event.stopPropagation();deleteLearning(\''+escHtml(item.id)+'\')">削除</button>'+
+      '</div></div>';
   }).join('');
   document.getElementById('content').innerHTML=
-    '<div class="section-header"><div class="section-title">MEO学習ライブラリ</div><button class="btn btn-primary btn-sm" onclick="openLearningForm()">＋ 記事追加</button></div>' +
-    '<div class="filter-bar">'+catBtns+'</div>' +
-    (items.length?cards:'<div class="empty-state"><div class="icon">📚</div><p>記事なし</p></div>');
+    '<div class="section-header"><div class="section-title">📚 MEO学習ライブラリ</div><button class="btn btn-primary btn-sm" onclick="openLearningForm()">＋ 記事追加</button></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">'+
+      '<div class="kpi-card"><div class="kpi-label">総記事数</div><div class="kpi-value">'+totalCount+'</div><div class="kpi-sub">全カテゴリ</div></div>'+
+      '<div class="kpi-card green"><div class="kpi-label">既読</div><div class="kpi-value">'+readCount+'</div><div class="kpi-sub">'+pct+'% 完了</div></div>'+
+      '<div class="kpi-card yellow"><div class="kpi-label">未読</div><div class="kpi-value">'+(totalCount-readCount)+'</div><div class="kpi-sub">残り記事</div></div>'+
+      '<div class="kpi-card purple"><div class="kpi-label">進捗</div><div class="kpi-value" style="font-size:22px">'+pct+'%</div>'+
+        '<div style="background:#e5e7eb;border-radius:4px;height:6px;margin-top:8px"><div style="background:#8b5cf6;border-radius:4px;height:6px;width:'+pct+'%"></div></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="filter-bar" style="margin-bottom:10px">'+
+      '<input type="text" placeholder="🔍 タイトル・内容・タグで検索..." style="min-width:260px" value="'+escHtml(ls.search||'')+'" oninput="state.learning.search=this.value;modules.learning()">'+
+      '<select style="width:auto" onchange="state.learning.sort=this.value;modules.learning()">'+
+        '<option value="new"'+(ls.sort==='new'?' selected':'')+'>新着順</option>'+
+        '<option value="unread"'+(ls.sort==='unread'?' selected':'')+'>未読優先</option>'+
+        '<option value="cat"'+(ls.sort==='cat'?' selected':'')+'>カテゴリ順</option>'+
+      '</select>'+
+    '</div>'+
+    '<div class="filter-bar" style="margin-bottom:6px">'+catBtns+'</div>'+
+    '<div class="filter-bar" style="margin-bottom:16px"><span style="font-size:12px;color:#6b7280;margin-right:4px">難易度:</span>'+diffBtns+'</div>'+
+    (items.length?'<div style="font-size:13px;color:#6b7280;margin-bottom:10px">'+items.length+'件表示</div>'+cards:'<div class="empty-state"><div class="icon">📚</div><p>条件に一致する記事がありません</p></div>');
 }
+
 function openLearningForm(){
   openModal('記事追加',
-    '<div class="form-group"><label>タイトル</label><input type="text" id="lf2-title"></div>' +
-    '<div class="form-row"><div class="form-group"><label>カテゴリ</label><select id="lf2-cat"><option>MEO基礎</option><option>Googleビジネス</option><option>クチコミ対策</option><option>SEO</option><option>営業</option><option>ツール操作</option><option>その他</option></select></div><div class="form-group"><label>タグ(カンマ区切り)</label><input type="text" id="lf2-tags" placeholder="MEO,Google,..."></div></div>' +
-    '<div class="form-group"><label>内容</label><textarea id="lf2-content" rows="8"></textarea></div>',
+    '<div class="form-group"><label>タイトル</label><input type="text" id="lf-title"></div>'+
+    '<div class="form-row"><div class="form-group"><label>カテゴリ</label><select id="lf-cat"><option>MEO基礎</option><option>Googleビジネス</option><option>クチコミ対策</option><option>SEO</option><option>営業</option><option>ツール操作</option><option>その他</option></select></div>'+
+    '<div class="form-group"><label>難易度</label><select id="lf-diff"><option>入門</option><option selected>基礎</option><option>応用</option><option>上級</option></select></div></div>'+
+    '<div class="form-row"><div class="form-group"><label>タグ（カンマ区切り）</label><input type="text" id="lf-tags" placeholder="MEO,Google,..."></div>'+
+    '<div class="form-group"><label>所要時間（分）</label><input type="number" id="lf-minutes" min="1" max="60" placeholder="5"></div></div>'+
+    '<div class="form-group"><label>内容</label><textarea id="lf-content" rows="8"></textarea></div>'+
+    '<div class="form-group"><label>YouTube URL（任意）</label><input type="text" id="lf-video" placeholder="https://www.youtube.com/watch?v=..."></div>'+
+    '<div class="form-group"><label>外部参照 URL（任意）</label><input type="text" id="lf-url" placeholder="https://..."></div>',
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="saveLearning()">保存</button>','modal-lg');
 }
-function saveLearning(){var s=getStore();s.learningItems.push({id:uid(),title:document.getElementById('lf2-title').value,category:document.getElementById('lf2-cat').value,tags:document.getElementById('lf2-tags').value,content:document.getElementById('lf2-content').value,createdAt:today(),read:false});saveStore(s);closeModal();toast('保存しました');modules.learning();}
+
+function openLearningEditForm(id){
+  var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(!item)return;
+  openModal('記事編集',
+    '<div class="form-group"><label>タイトル</label><input type="text" id="lf-title" value="'+escHtml(item.title||'')+'"></div>'+
+    '<div class="form-row"><div class="form-group"><label>カテゴリ</label><select id="lf-cat">'+
+      ['MEO基礎','Googleビジネス','クチコミ対策','SEO','営業','ツール操作','その他'].map(function(c){return '<option'+(c===item.category?' selected':'')+'>'+c+'</option>';}).join('')+
+    '</select></div>'+
+    '<div class="form-group"><label>難易度</label><select id="lf-diff">'+
+      ['入門','基礎','応用','上級'].map(function(d){return '<option'+(d===item.difficulty?' selected':'')+'>'+d+'</option>';}).join('')+
+    '</select></div></div>'+
+    '<div class="form-row"><div class="form-group"><label>タグ（カンマ区切り）</label><input type="text" id="lf-tags" value="'+escHtml(item.tags||'')+'"></div>'+
+    '<div class="form-group"><label>所要時間（分）</label><input type="number" id="lf-minutes" min="1" max="60" value="'+escHtml(String(item.minutes||''))+'"></div></div>'+
+    '<div class="form-group"><label>内容</label><textarea id="lf-content" rows="8">'+escHtml(item.content||'')+'</textarea></div>'+
+    '<div class="form-group"><label>YouTube URL（任意）</label><input type="text" id="lf-video" value="'+escHtml(item.videoUrl||'')+'" placeholder="https://www.youtube.com/watch?v=..."></div>'+
+    '<div class="form-group"><label>外部参照 URL（任意）</label><input type="text" id="lf-url" value="'+escHtml(item.url||'')+'" placeholder="https://..."></div>',
+    '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="updateLearning(\''+escHtml(id)+'\')">更新</button>','modal-lg');
+}
+
+function saveLearning(){
+  var s=getStore();var title=document.getElementById('lf-title').value.trim();
+  if(!title){toast('タイトルを入力してください','error');return;}
+  s.learningItems.push({id:uid(),title:title,category:document.getElementById('lf-cat').value,difficulty:document.getElementById('lf-diff').value,tags:document.getElementById('lf-tags').value,minutes:parseInt(document.getElementById('lf-minutes').value)||0,content:document.getElementById('lf-content').value,videoUrl:document.getElementById('lf-video').value.trim(),url:document.getElementById('lf-url').value.trim(),createdAt:today(),read:false});
+  saveStore(s);closeModal();toast('保存しました');modules.learning();
+}
+function updateLearning(id){
+  var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(!item)return;
+  var title=document.getElementById('lf-title').value.trim();if(!title){toast('タイトルを入力してください','error');return;}
+  item.title=title;item.category=document.getElementById('lf-cat').value;item.difficulty=document.getElementById('lf-diff').value;
+  item.tags=document.getElementById('lf-tags').value;item.minutes=parseInt(document.getElementById('lf-minutes').value)||0;
+  item.content=document.getElementById('lf-content').value;item.videoUrl=document.getElementById('lf-video').value.trim();item.url=document.getElementById('lf-url').value.trim();
+  saveStore(s);closeModal();toast('更新しました');modules.learning();
+}
 function markLearningRead(id){var s=getStore();var item=s.learningItems.find(function(x){return x.id===id;});if(item)item.read=true;saveStore(s);toast('既読にしました');modules.learning();}
 function deleteLearning(id){if(!confirm('削除しますか？'))return;var s=getStore();s.learningItems=s.learningItems.filter(function(x){return x.id!==id;});saveStore(s);state.learning.viewId=null;toast('削除しました','info');modules.learning();}
 
