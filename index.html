@@ -333,6 +333,15 @@ async function drivePost(key, data) {
 function loadStore() { return _storeCache || {}; }
 
 function saveStore(data) {
+  // ローカルスナップショット保存（直近3件・データロス防止）
+  try {
+    var snaps = JSON.parse(localStorage.getItem('funlink_snapshots') || '[]');
+    if (_storeCache) {
+      snaps.unshift({ ts: new Date().toISOString(), data: JSON.stringify(_storeCache) });
+      if (snaps.length > 3) snaps = snaps.slice(0, 3);
+      localStorage.setItem('funlink_snapshots', JSON.stringify(snaps));
+    }
+  } catch(e) {}
   _storeCache = data;
   // ローカルキャッシュ（オフライン時のフォールバック）
   try { localStorage.setItem('funlink_cms_cache', JSON.stringify(data)); } catch(e) {}
@@ -751,6 +760,12 @@ var REVIEW_UNMATCHED = [
   'アメ村屋台 〜結〜 100日間限定のかき氷屋さん','便利屋 シンク・タンク・ゲン',
   'Healing salon JADE','LUMINUS OKINAWA-ルミナス'
 ];
+
+// 未マッチ店舗リストを取得（インポート済なら動的リスト、未インポートなら初期ハードコード）
+function _getReviewUnmatched() {
+  var s = getStore();
+  return (s.reviewUnmatchedDynamic && s.reviewUnmatchedDynamic.length) ? s.reviewUnmatchedDynamic : REVIEW_UNMATCHED;
+}
 
 // LINE messages Supabase cache
 var _lmSummary = null; // fl -> {unread, latestDate, hasClam}
@@ -4333,8 +4348,9 @@ function renderReviewModule() {
     var act = viewMode===v;
     return 'padding:5px 10px;font-size:12px;border:1px solid '+(act?'#1e3a5f':'#e5e7eb')+';border-radius:4px;background:'+(act?'#1e3a5f':'#fff')+';color:'+(act?'#fff':'#374151')+';cursor:pointer';
   };
-  var _unmLinked = Object.keys((getStore().reviewUnmatchedLinks)||{}).length;
-  var _unmLeft = REVIEW_UNMATCHED.length - _unmLinked;
+  var _unmList = _getReviewUnmatched();
+  var _unmLinked = Object.keys((getStore().reviewUnmatchedLinks)||{}).filter(function(k){ return _unmList.indexOf(k)>=0; }).length;
+  var _unmLeft = _unmList.length - _unmLinked;
 
   var html = '<div style="display:flex;flex-direction:column;height:calc(100vh - 112px);overflow:hidden">';
   html += '<div style="background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 16px">';
@@ -4349,6 +4365,20 @@ function renderReviewModule() {
   html += '<button style="'+vmStyle('kpi')+'" onclick="_rvViewMode=\'kpi\';renderReviewModule()">📊 KPI分析</button>';
   html += '<button style="padding:5px 10px;font-size:12px;border:1px solid #a855f7;border-radius:4px;background:#faf5ff;color:#7e22ce;cursor:pointer" onclick="openCsStaffModal()">👥 CS名簿</button>';
   html += '<button style="padding:5px 10px;font-size:12px;border:1px solid '+(_unmLeft>0?'#ef4444':'#10b981')+';border-radius:4px;background:'+(_unmLeft>0?'#fef2f2':'#f0fdf4')+';color:'+(_unmLeft>0?'#ef4444':'#10b981')+';cursor:pointer" onclick="openReviewUnmatchedModal()">'+(_unmLeft>0?'⚠':'✓')+' 未マッチ '+_unmLeft+'</button>';
+  var _rvAlertCount = 0;
+  if (_reviewKpi && _reviewKpi.by_store) {
+    var _curMonth = _RV_CURRENT;
+    Object.keys(_reviewKpi.by_store).forEach(function(k) {
+      var st = _reviewKpi.by_store[k];
+      var cnt = (st.monthly_count && st.monthly_count[_curMonth]) || 0;
+      var replied = (st.monthly_replied_count && st.monthly_replied_count[_curMonth]) || 0;
+      var rating = (st.monthly_rating_single && st.monthly_rating_single[_curMonth]) || 0;
+      if ((rating > 0 && rating <= 3) || (cnt > 0 && replied < cnt)) _rvAlertCount++;
+    });
+  }
+  if (_rvAlertCount > 0) {
+    html += '<button style="padding:5px 10px;font-size:12px;border:1px solid #ef4444;border-radius:4px;background:#fef2f2;color:#ef4444;cursor:pointer;font-weight:600" onclick="_rvViewMode=\'table\';renderReviewModule()">&#9888; 要対応 '+_rvAlertCount+' 店</button>';
+  }
   html += '<button style="padding:5px 10px;font-size:12px;border:1px solid #0369a1;border-radius:4px;background:#f0f9ff;color:#0369a1;cursor:pointer" onclick="openReviewImport()">📥 実績インポート</button>';
   window._rvReportFls = cases.map(function(c){return c.fl;});
   html += '<button style="padding:5px 10px;font-size:12px;border:1px solid #7c3aed;border-radius:4px;background:#faf5ff;color:#7c3aed;cursor:pointer" onclick="openKpiBulkReport(window._rvReportFls)">📄 一括レポート</button>';
@@ -4361,6 +4391,11 @@ function renderReviewModule() {
     '<span style="font-size:12px;color:#94a3b8;font-weight:400"> / 目標 '+(totalTarget?totalTarget.toLocaleString()+' 件':'未設定')+'</span></div></div>';
   html += '<div style="flex:1;max-width:280px">'+_rvBar(totalPct,'80px')+'</div>';
   html += '<div style="font-size:12px;color:#94a3b8">'+cases.length+' 社対象</div>';
+  // 集計タイムスタンプ: データの鮮度を常時表示
+  var _rvImportedAt = _reviewKpi && _reviewKpi._imported_at;
+  html += '<div style="margin-left:auto;text-align:right;font-size:11px">'+
+    (_rvImportedAt ? '最終取込: <span style="color:#94a3b8">'+_rvImportedAt+'</span>' : '<span style="color:#fca5a5">&#9888; データ未取込</span>')+
+  '</div>';
   html += '</div>';
 
   html += '<div style="flex:1;overflow-y:auto">';
@@ -5260,9 +5295,10 @@ function openReviewUnmatchedModal() {
 function _buildUnmatchedBody() {
   var s = getStore();
   var links = s.reviewUnmatchedLinks || {};
-  var linked = Object.keys(links).filter(function(k){ return !!links[k]; }).length;
-  var pct = Math.round(linked / REVIEW_UNMATCHED.length * 100);
-  var list = REVIEW_UNMATCHED.filter(function(n) {
+  var unmList = _getReviewUnmatched();
+  var linked = Object.keys(links).filter(function(k){ return !!links[k] && unmList.indexOf(k)>=0; }).length;
+  var pct = Math.round(linked / unmList.length * 100);
+  var list = unmList.filter(function(n) {
     if (_rvUnmSearch && n.toLowerCase().indexOf(_rvUnmSearch.toLowerCase()) < 0) return false;
     if (_rvUnmFilter === 'unlinked' && links[n]) return false;
     return true;
@@ -5354,7 +5390,8 @@ function renderMtgList(q) {
   var s=getStore();
   var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
   var el=document.getElementById('mtg-case-list');if(!el)return;
-  el.innerHTML=list.map(function(c){// MTG種別バッジ（色分け）
+  el.innerHTML=list.map(function(c){
+// MTG種別バッジ（色分け）
 function mtgTypeBadge(t){
   var styles={月次定例:'background:#DCFCE7;color:#166534',オンボーディング:'background:#DBEAFE;color:#1E40AF',問題対応:'background:#FEF3C7;color:#92400E',解約防止:'background:#FEE2E2;color:#991B1B',その他:'background:#F3F4F6;color:#374151'};
   var st=styles[t]||styles['その他'];
@@ -8154,6 +8191,10 @@ async function executeReviewImport() {
     var { error } = await _sb.from('cms_store').upsert({ id:'review_kpi', data: newKpi, updated_at: new Date().toISOString() });
     if (error) throw new Error(error.message);
     _reviewKpi = newKpi;
+    // 未マッチ店舗リストを動的更新（ハードコードリストの代わり）
+    var s2 = getStore();
+    s2.reviewUnmatchedDynamic = Object.keys(agg.byStore);
+    saveStore(s2);
     window._rvImportPending = null;
     closeModal();
     toast('クチコミ実績を取込みました（'+agg.totalRows.toLocaleString()+'件）');
