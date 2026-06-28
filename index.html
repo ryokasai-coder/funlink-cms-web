@@ -5466,6 +5466,13 @@ function renderMtgList(q) {
   var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
   var el=document.getElementById('mtg-case-list');if(!el)return;
   el.innerHTML=list.map(function(c){
+    var cnt=s.meetings.filter(function(m){return m.caseFL===c.fl;}).length;
+    return '<div class="case-item '+(state.meeting.selectedFL===c.fl?'active':'')+'" onclick="state.meeting.selectedFL=\''+escHtml(c.fl)+'\';showMtgList(\''+escHtml(c.fl)+'\');renderMtgList(this.closest(\'.panel-left\').querySelector(\'input\').value)">' +
+      '<div class="fl">'+escHtml(c.fl)+'</div><div class="name">'+escHtml(c.name)+'</div>' +
+      (cnt?'<div style="margin-top:3px"><span class="badge badge-blue">'+cnt+'件</span></div>':'')+
+      '</div>';
+  }).join('');
+}
 // MTG種別バッジ（色分け）
 function mtgTypeBadge(t){
   var styles={月次定例:'background:#DCFCE7;color:#166534',オンボーディング:'background:#DBEAFE;color:#1E40AF',問題対応:'background:#FEF3C7;color:#92400E',解約防止:'background:#FEE2E2;color:#991B1B',その他:'background:#F3F4F6;color:#374151'};
