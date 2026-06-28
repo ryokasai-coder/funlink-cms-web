@@ -725,6 +725,9 @@ var CASE_STATUS_VALUES = ['契約中', '契約終了', '無償運用', '提案�
 var _reviewKpi = { by_fl: {}, by_store: {} };
 // クライアント実績報告キャッシュ（Supabase cms_store id=client_reports）
 var _clientReports = { by_fl: {} };
+// MEO学習キャッシュ（Supabase cms_store id=meo_articles / id=meo_progress）
+var _meoArticles = null;  // null=未ロード
+var _meoProgress = {};    // { [userId]: { [articleId]: { read, views, readAt } } }
 
 // クチコミ未マッチ86店舗（GBPからインポートされたが自動紐付け不可）
 var REVIEW_UNMATCHED = [
@@ -1001,6 +1004,40 @@ function getStore() {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 
+// ===================== MEO学習 Supabase I/O =====================
+async function loadMeoArticles() {
+  var res = await _sb.from('cms_store').select('data').eq('id','meo_articles').maybeSingle();
+  if (res.data && res.data.data && res.data.data.items && res.data.data.items.length) {
+    _meoArticles = res.data.data.items;
+  } else {
+    _meoArticles = seedLearningItems().map(function(a) { delete a.read; return a; });
+    await saveMeoArticles();
+  }
+}
+async function saveMeoArticles() {
+  await _sb.from('cms_store').upsert({ id: 'meo_articles', data: { items: _meoArticles }, updated_at: new Date().toISOString() });
+}
+async function loadMeoProgress() {
+  var res = await _sb.from('cms_store').select('data').eq('id','meo_progress').maybeSingle();
+  _meoProgress = (res.data && res.data.data) ? res.data.data : {};
+}
+async function saveMeoProgress() {
+  await _sb.from('cms_store').upsert({ id: 'meo_progress', data: _meoProgress, updated_at: new Date().toISOString() });
+}
+function getMeoUserProgress() {
+  if (!currentUser) return {};
+  return _meoProgress[currentUser.id] || {};
+}
+async function markMeoArticleRead(articleId) {
+  if (!currentUser) return;
+  if (!_meoProgress[currentUser.id]) _meoProgress[currentUser.id] = {};
+  var entry = _meoProgress[currentUser.id][articleId] || {};
+  entry.views = (entry.views || 0) + 1;
+  if (!entry.read) { entry.read = true; entry.readAt = new Date().toISOString(); }
+  _meoProgress[currentUser.id][articleId] = entry;
+  saveMeoProgress(); // fire-and-forget
+}
+
 // ===================== UTILS =====================
 function escHtml(s) { if (s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmtMoney(n) { if (n == null) return '-'; return '¥' + Number(n).toLocaleString(); }
@@ -1217,9 +1254,9 @@ var state = {
   review: { selectedFL: null, tab: 0 },
   meeting: { selectedFL: null },
   task: { tab: 0, catFilter: '全て', assigneeFilter: '', statusFilter: '全て', calYear: new Date().getFullYear(), calMonth: new Date().getMonth() },
-  proposal: { selectedFL: null },
+  proposal: { selectedFL: null, filterAssignee: '', filterProduct: '' },
   support: { selectedFL: null, filter: {cat:'', res:''} },
-  payment: { tab:0, statusFilter:'全て', ymFilter:'', fromYm:'', toYm:'', msFrom:'', msTo:'' },
+  payment: { tab:0, statusFilter:'全て', ymFilter:'', fromYm:'', toYm:'', msFrom:'', msTo:'', page:0 },
   contractReport: { fy:null, staff:'全て' },
   learning: { catFilter: '全て', diffFilter: '全て', search: '', sort: 'new', viewId: null }
 };
@@ -1279,6 +1316,8 @@ modules.dashboard = function() {
   var overdueTasks = allTasks.filter(function(t){ return t.status!=='done'&&t.status!=='完了'&&t.due_date&&t.due_date<todayStr; });
   var recentTasks = (s.tasks||[]).slice().sort(function(a,b){ return (b.deadline||'').localeCompare(a.deadline||''); }).slice(0,6);
   var recentSupport = (s.supportLogs||[]).slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }).slice(0,6);
+  // 未解決サポート: resolution==='未解決' または '対応中' の件数
+  var unresolvedSupport = (s.supportLogs||[]).filter(function(l){ return l.resolution==='未解決' || l.resolution==='対応中'; });
   // 今月の請求書データ
   var thisMonth = invoices.filter(function(x){return x.period_start&&x.period_start.slice(0,7)===ym;});
   var paidAmt = thisMonth.filter(function(x){return x.status==='完了';}).reduce(function(a,x){return a+x.amount;},0);
@@ -1286,7 +1325,8 @@ modules.dashboard = function() {
   var paidBills = thisMonth.filter(function(x){return x.status==='完了';}).length;
   var pct = thisMonth.length ? Math.round(paidBills/thisMonth.length*100) : 0;
   var taskRows = recentTasks.length ? recentTasks.map(function(t){ return '<tr><td>' + escHtml(t.title) + '</td><td>' + escHtml(t.deadline||'-') + '</td><td>' + taskStatusBadge(t.status) + '</td></tr>'; }).join('') : '';
-  var supportRows = recentSupport.length ? recentSupport.map(function(l){ var c=MASTER_CASES.find(function(x){return x.fl===l.caseFL;}); return '<tr><td>' + escHtml(c?c.name:l.caseFL) + '</td><td>' + escHtml(l.date) + '</td><td><span class="badge badge-blue">' + escHtml(l.category) + '</span></td></tr>'; }).join('') : '';
+  var _supResColors={'解決済み':'badge-green','対応中':'badge-yellow','未解決':'badge-red','対応不要':'badge-gray'};
+  var supportRows = recentSupport.length ? recentSupport.map(function(l){ var c=MASTER_CASES.find(function(x){return x.fl===l.caseFL;}); var resCls=_supResColors[l.resolution]||'badge-gray'; return '<tr><td>' + escHtml(c?c.name:l.caseFL) + '</td><td>' + escHtml(l.date) + '</td><td><span class="badge badge-blue">' + escHtml(l.category) + '</span></td><td><span class="badge '+resCls+'">'+escHtml(l.resolution||'-')+'</span></td></tr>'; }).join('') : '';
   // 未収TOP5
   var unpaidTop = unpaidAll.slice().sort(function(a,b){return b.amount-a.amount;}).slice(0,5);
   var unpaidRows = unpaidTop.map(function(x){
@@ -1343,6 +1383,7 @@ modules.dashboard = function() {
   if (lineUnread > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f5f3ff;border-left:3px solid #7c3aed;border-radius:0 6px 6px 0;cursor:pointer" onclick="state.line.listFilter=\'unread\';loadModule(\'line\')"><span style="font-size:16px">💬</span><div><div style="font-weight:700;font-size:13px;color:#5b21b6">LINE未返信 '+lineUnread+' 件</div><div style="font-size:11px;color:#7c3aed">LINE対応 → 未読タブで確認</div></div></div>');
   // 月額¥0バッジ: 契約中なのにfeeが0またはnullの案件 → MRR集計が過小評価になるリスク
   if (zeroFeeContracts.length > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #ea580c;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'contract\')"><span style="font-size:16px">🧾</span><div><div style="font-weight:700;font-size:13px;color:#9a3412">月額未設定（¥0） '+zeroFeeContracts.length+' 件 — MRRが過小評価されています</div><div style="font-size:11px;color:#ea580c">契約管理 → 各社の月額フィールドを確認・修正してください</div></div></div>');
+  if (unresolvedSupport.length > 0) alerts.push('<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff7ed;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;cursor:pointer" onclick="loadModule(\'support\')"><span style="font-size:16px">🛟</span><div><div style="font-weight:700;font-size:13px;color:#92400e">未解決サポート '+unresolvedSupport.length+' 件（対応中含む）</div><div style="font-size:11px;color:#d97706">サポート履歴 → 解決状況を更新してください</div></div></div>');
 
   var alertHtml = alerts.length ?
     '<div class="card" style="margin-bottom:16px;border:1px solid #fecaca"><div class="card-title" style="color:#991b1b">⚠️ 要対応アラート（' + alerts.length + '件） <span style="font-size:11px;font-weight:400;color:#9ca3af">— 「静かな画面 = 問題なし」。このカードが空なら全て順調です。</span></div><div style="display:flex;flex-direction:column;gap:8px">' + alerts.join('') + '</div></div>' :
@@ -1404,6 +1445,18 @@ modules.dashboard = function() {
         '<div class="kpi-sub">'+_rvLkd+' / '+REVIEW_UNMATCHED.length+' 店舗 紐付済</div>' +
         '<div class="kpi-action">→ データ付け合せへ</div></div>';
     })() +
+    // 未解決サポート件数 → サポート履歴へ（算出: resolution==='未解決'||'対応中' のカウント）
+    (function(){
+      var _unresolved = unresolvedSupport.length;
+      var _ongoing = unresolvedSupport.filter(function(l){return l.resolution==='対応中';}).length;
+      var _stuck = unresolvedSupport.filter(function(l){return l.resolution==='未解決';}).length;
+      var _sColor = _stuck > 0 ? 'red' : (_ongoing > 0 ? 'yellow' : 'green');
+      return '<div class="kpi-card '+_sColor+'" style="cursor:pointer" onclick="loadModule(\'support\')">' +
+        '<div class="kpi-label">未解決サポート</div>' +
+        '<div class="kpi-value">' + _unresolved + '<span style="font-size:14px;color:#6b7280"> 件</span></div>' +
+        '<div class="kpi-sub">' + (_stuck?'未解決'+_stuck+'件':'') + (_ongoing?(_stuck?'・':'')+'対応中'+_ongoing+'件':'') + (_unresolved===0?'全件解決済み':'') + '</div>' +
+        '<div class="kpi-action">→ サポート履歴を開く</div></div>';
+    })() +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">' +
     // チャーンスコア（スコア = 接触空白×0.5 + 未タスク×10 + クチコミ停止月×15）
@@ -1437,7 +1490,7 @@ modules.dashboard = function() {
     '<div style="flex:1;min-width:140px"><div class="kpi-label">入金率</div><div class="progress-bar" style="margin-top:6px"><div class="progress-fill" style="width:' + pct + '%"></div></div><div style="font-size:12px;color:#6b7280;margin-top:4px">' + pct + '%</div></div>' +
     '</div></div>' +
     '</div>' +
-    (recentSupport.length?'<div class="card" style="margin-top:16px"><div class="card-title">最近のサポート履歴</div><div class="table-wrap"><table><thead><tr><th>案件</th><th>日付</th><th>分類</th></tr></thead><tbody>' + supportRows + '</tbody></table></div></div>':'') +
+    (recentSupport.length?'<div class="card" style="margin-top:16px"><div class="card-title">最近のサポート履歴' + (unresolvedSupport.length?'<span style="margin-left:8px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#fee2e2;color:#991b1b">未解決/対応中 '+unresolvedSupport.length+'件</span>':'') + '<span style="float:right;font-size:11px;font-weight:400;color:#6b7280;cursor:pointer" onclick="loadModule(\'support\')">→ 全件を見る</span></div><div class="table-wrap"><table><thead><tr><th>案件</th><th>日付</th><th>分類</th><th>解決状況</th></tr></thead><tbody>' + supportRows + '</tbody></table></div></div>':'') +
     '<div class="card" style="margin-top:16px"><div class="card-title">MRR 推移（直近12ヶ月）' +
     (invoices.length?'':'<span style="font-size:11px;color:#9ca3af;font-weight:400"> ※請求ロボCSV未取込 — 概算値（マスタfee合計）</span>') +
     '</div><div style="position:relative;height:200px"><canvas id="mrr-chart"></canvas></div></div>' +
@@ -6039,34 +6092,134 @@ function exportICS(){
 // PROPOSAL
 modules.proposal = function() { renderProposalModule(); };
 function renderProposalModule(){
-  var s=getStore();var stages=['提案中','検討中','契約','見送り'];var stageColors=['#3b82f6','#f59e0b','#10b981','#6b7280'];
+  var s=getStore();
+  var stages=['提案中','検討中','契約','見送り'];
+  var stageColors=['#3b82f6','#f59e0b','#10b981','#6b7280'];
+  var todayStr=today();
+  var filterAssignee=state.proposal.filterAssignee||'';
+  var filterProduct=state.proposal.filterProduct||'';
+  var allAssignees=[];
+  s.proposals.forEach(function(p){ if(p.assignee&&allAssignees.indexOf(p.assignee)===-1) allAssignees.push(p.assignee); });
   var cols=stages.map(function(stage,si){
-    var props=s.proposals.filter(function(p){return p.status===stage;});
+    var props=s.proposals.filter(function(p){
+      if(p.status!==stage) return false;
+      if(filterAssignee&&p.assignee!==filterAssignee) return false;
+      if(filterProduct&&p.product.indexOf(filterProduct)===-1) return false;
+      return true;
+    });
     var cards=props.map(function(p){
       var c=MASTER_CASES.find(function(x){return x.fl===p.caseFL;});
-      var moveBtns=stages.filter(function(ss){return ss!==stage;}).map(function(ns){return '<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="moveProposal(\''+escHtml(p.id)+'\',\''+escHtml(ns)+'\')">→'+ns+'</button>';}).join('');
-      return '<div class="pipeline-card"><div style="font-size:11px;color:#6b7280;margin-bottom:2px">'+(c?escHtml(c.fl):escHtml(p.caseFL))+'</div><div style="font-weight:600;font-size:13px;margin-bottom:4px">'+escHtml(p.product)+'</div><div style="font-size:13px;color:#10b981">'+fmtMoney(p.amount)+'</div><div style="font-size:11px;color:#6b7280;margin-top:4px">'+escHtml(p.proposedDate)+'</div>'+(p.note?'<div style="font-size:12px;color:#374151;margin-top:4px">'+escHtml(p.note)+'</div>':'')+'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">'+moveBtns+'<button class="btn btn-sm btn-danger" style="font-size:10px;padding:2px 6px" onclick="deleteProposal(\''+escHtml(p.id)+'\')">削除</button></div></div>';
+      var moveBtns=stages.filter(function(ss){return ss!==stage;}).map(function(ns){
+        return '<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px" onclick="moveProposal(\''+escHtml(p.id)+'\',\''+escHtml(ns)+'\')">→'+ns+'</button>';
+      }).join('');
+      var followBadge='';
+      if(p.nextFollowDate){
+        var overdue=p.nextFollowDate<todayStr;
+        followBadge='<div style="font-size:11px;background:'+(overdue?'#FEF2F2':'#EFF6FF')+';color:'+(overdue?'#B91C1C':'#1D4ED8')+';border-radius:4px;padding:2px 6px;margin-top:4px;display:inline-block">'+(overdue?'&#9888;&#65039; 期限超過: ':'&#128197; 次回: ')+escHtml(p.nextFollowDate)+'</div>';
+      }
+      return '<div class="pipeline-card">'
+        +'<div style="font-size:11px;color:#6b7280;margin-bottom:1px">'+escHtml(p.caseFL)+(c?'<span style="margin-left:5px;font-weight:600;color:#374151;font-size:12px">'+escHtml(c.name)+'</span>':'')+'</div>'
+        +'<div style="font-weight:600;font-size:13px;margin-bottom:4px">'+escHtml(p.product)+'</div>'
+        +'<div style="font-size:13px;color:#10b981">'+fmtMoney(p.amount)+'</div>'
+        +'<div style="font-size:11px;color:#6b7280;margin-top:4px">提案: '+escHtml(p.proposedDate)+(p.assignee?'&nbsp;&nbsp;担当: <strong>'+escHtml(p.assignee)+'</strong>':'')+'</div>'
+        +followBadge
+        +(p.note?'<div style="font-size:12px;color:#374151;margin-top:4px;word-break:break-all">'+escHtml(p.note)+'</div>':'')
+        +'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">'+moveBtns
+        +'<button class="btn btn-sm btn-secondary" style="font-size:10px;padding:2px 6px;background:#EEF2FF;color:#4338CA;border-color:#C7D2FE" onclick="openProposalForm(\''+escHtml(p.id)+'\')">編集</button>'
+        +'<button class="btn btn-sm btn-danger" style="font-size:10px;padding:2px 6px" onclick="deleteProposal(\''+escHtml(p.id)+'\')">削除</button>'
+        +'</div></div>';
     }).join('');
-    return '<div class="pipeline-col"><div class="pipeline-col-header"><span style="color:'+stageColors[si]+'">'+stage+'</span><span class="badge badge-gray">'+props.length+'</span></div>'+
-      (cards||'<div class="text-muted text-sm" style="text-align:center;padding:16px">なし</div>')+
-      '</div>';
+    return '<div class="pipeline-col"><div class="pipeline-col-header"><span style="color:'+stageColors[si]+'">'+stage+'</span><span class="badge badge-gray">'+props.length+'</span></div>'
+      +(cards||'<div class="text-muted text-sm" style="text-align:center;padding:16px">なし</div>')
+      +'</div>';
   }).join('');
+  var assigneeOpts='<option value="">全担当者</option>'+allAssignees.map(function(a){return '<option value="'+escHtml(a)+'"'+(filterAssignee===a?' selected':'')+'>'+escHtml(a)+'</option>';}).join('');
+  var filterBar='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">'
+    +'<select style="padding:4px 8px;border:1px solid #E4E7EC;border-radius:6px;font-size:12px" onchange="state.proposal.filterAssignee=this.value;renderProposalModule()">'+assigneeOpts+'</select>'
+    +'<input type="text" placeholder="商品名で絞り込み" value="'+escHtml(filterProduct)+'" style="padding:4px 8px;border:1px solid #E4E7EC;border-radius:6px;font-size:12px;width:150px" oninput="state.proposal.filterProduct=this.value;renderProposalModule()">'
+    +'</div>';
   document.getElementById('content').innerHTML=
-    '<div class="section-header"><div class="section-title">提案パイプライン</div><button class="btn btn-primary btn-sm" onclick="openProposalForm()">＋ 提案追加</button></div>'+
-    '<div class="pipeline">'+cols+'</div>';
+    '<div class="section-header"><div class="section-title">提案パイプライン</div><button class="btn btn-primary btn-sm" onclick="openProposalForm()">＋ 提案追加</button></div>'
+    +filterBar
+    +'<div class="pipeline">'+cols+'</div>';
 }
-function openProposalForm(){
-  openModal('提案追加',
-    '<div class="form-group"><label>案件FL</label><input type="text" id="pf-fl" placeholder="FL00001"></div>' +
-    '<div class="form-group"><label>提案商品・プラン</label><input type="text" id="pf-product"></div>' +
-    '<div class="form-row"><div class="form-group"><label>金額</label><input type="number" id="pf-amount"></div><div class="form-group"><label>提案日</label><input type="date" id="pf-date" value="'+today()+'"></div></div>' +
-    '<div class="form-group"><label>ステータス</label><select id="pf-status"><option>提案中</option><option>検討中</option><option>契約</option><option>見送り</option></select></div>' +
-    '<div class="form-group"><label>メモ</label><textarea id="pf-note" rows="2"></textarea></div>',
-    '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="saveProposal()">保存</button>');
+function openProposalForm(editId){
+  var ex=editId?(getStore().proposals.find(function(x){return x.id===editId;})||null):null;
+  var staff=getCsStaffList();
+  var staffOpts='<option value="">担当なし</option>'+staff.map(function(n){return '<option value="'+escHtml(n)+'"'+(ex&&ex.assignee===n?' selected':'')+'>'+escHtml(n)+'</option>';}).join('');
+  var statusOpts=['提案中','検討中','契約','見送り'].map(function(v){
+    var sel=ex?ex.status===v:v==='提案中';
+    return '<option value="'+v+'"'+(sel?' selected':'')+'>'+v+'</option>';
+  }).join('');
+  var flDatalist='<datalist id="pf-fl-list">'+MASTER_CASES.slice(0,500).map(function(c){return '<option value="'+escHtml(c.fl)+'">'+escHtml(c.name)+'</option>';}).join('')+'</datalist>';
+  openModal(editId?'提案編集':'提案追加',
+    flDatalist+
+    '<div class="form-group"><label>案件FL <span style="color:#ef4444">*</span></label><input type="text" id="pf-fl" placeholder="FL00001" list="pf-fl-list" value="'+(ex?escHtml(ex.caseFL):'')+'"></div>'+
+    '<div class="form-group"><label>提案商品・プラン <span style="color:#ef4444">*</span></label><input type="text" id="pf-product" value="'+(ex?escHtml(ex.product):'')+'"></div>'+
+    '<div class="form-row">'+
+      '<div class="form-group"><label>金額</label><input type="number" id="pf-amount" value="'+(ex?ex.amount:'')+'"></div>'+
+      '<div class="form-group"><label>提案日</label><input type="date" id="pf-date" value="'+(ex?escHtml(ex.proposedDate):today())+'"></div>'+
+    '</div>'+
+    '<div class="form-row">'+
+      '<div class="form-group"><label>担当者</label><select id="pf-assignee">'+staffOpts+'</select></div>'+
+      '<div class="form-group"><label>次回フォロー日</label><input type="date" id="pf-follow" value="'+(ex&&ex.nextFollowDate?escHtml(ex.nextFollowDate):'')+'"></div>'+
+    '</div>'+
+    '<div class="form-group"><label>ステータス</label><select id="pf-status">'+statusOpts+'</select></div>'+
+    '<div class="form-group"><label>メモ</label><textarea id="pf-note" rows="2">'+(ex?escHtml(ex.note):'')+'</textarea></div>',
+    (editId?'<button class="btn btn-danger" onclick="if(confirm(\'この提案を削除しますか？\')){var s=getStore();s.proposals=s.proposals.filter(function(x){return x.id!==\''+escHtml(editId)+'\';});saveStore(s);closeModal();toast(\'削除しました\');renderProposalModule();}">削除</button>':'')+
+    '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>'+
+    '<button class="btn btn-primary" onclick="saveProposal(\''+escHtml(editId||'')+'\')">保存</button>');
 }
-function saveProposal(){var s=getStore();s.proposals.push({id:uid(),caseFL:document.getElementById('pf-fl').value,product:document.getElementById('pf-product').value,amount:+document.getElementById('pf-amount').value,proposedDate:document.getElementById('pf-date').value,status:document.getElementById('pf-status').value,note:document.getElementById('pf-note').value});saveStore(s);closeModal();toast('保存しました');renderProposalModule();}
-function moveProposal(id,ns){var s=getStore();var p=s.proposals.find(function(x){return x.id===id;});if(p)p.status=ns;saveStore(s);renderProposalModule();}
-function deleteProposal(id){if(!confirm('削除しますか？'))return;var s=getStore();s.proposals=s.proposals.filter(function(p){return p.id!==id;});saveStore(s);toast('削除しました','info');renderProposalModule();}
+function saveProposal(editId){
+  var fl=(document.getElementById('pf-fl').value||'').trim();
+  var product=(document.getElementById('pf-product').value||'').trim();
+  if(!fl||!product){ toast('FL番号と提案商品は必須です',true); return; }
+  var s=getStore();
+  var obj={
+    id:editId||uid(),
+    caseFL:fl,
+    product:product,
+    amount:+document.getElementById('pf-amount').value,
+    proposedDate:document.getElementById('pf-date').value,
+    assignee:document.getElementById('pf-assignee').value,
+    nextFollowDate:document.getElementById('pf-follow').value,
+    status:document.getElementById('pf-status').value,
+    note:document.getElementById('pf-note').value
+  };
+  if(editId){
+    var idx=s.proposals.findIndex(function(x){return x.id===editId;});
+    if(idx>=0) s.proposals[idx]=obj; else s.proposals.push(obj);
+  } else {
+    s.proposals.push(obj);
+  }
+  saveStore(s);closeModal();toast(editId?'更新しました':'保存しました');renderProposalModule();
+}
+function moveProposal(id,ns){
+  var s=getStore();
+  var p=s.proposals.find(function(x){return x.id===id;});
+  if(!p) return;
+  p.status=ns;
+  p.lastContactDate=today();
+  saveStore(s);
+  renderProposalModule();
+  if(ns==='契約'){
+    var c=MASTER_CASES.find(function(x){return x.fl===p.caseFL;});
+    var label=c?c.name:p.caseFL;
+    if(confirm('"'+label+'"の提案が契約に移行しました。\n契約管理モジュールで確認しますか？')){
+      document.querySelectorAll('.nav-item').forEach(function(el){ el.classList.remove('active'); if(el.dataset.module==='contract') el.classList.add('active'); });
+      loadModule('contract');
+    }
+  }
+}
+function deleteProposal(id){
+  if(!confirm('削除しますか？')) return;
+  var s=getStore();
+  s.proposals=s.proposals.filter(function(p){return p.id!==id;});
+  saveStore(s);
+  closeModal();
+  toast('削除しました');
+  renderProposalModule();
+}
 
 // SUPPORT
 modules.support = function() { renderSupportModule(); };
@@ -6080,8 +6233,10 @@ function renderSupportList(q){
   var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
   var el=document.getElementById('support-case-list');if(!el)return;
   el.innerHTML=list.map(function(c){
-    var cnt=s.supportLogs.filter(function(l){return l.caseFL===c.fl;}).length;
-    return '<div class="case-item '+(state.support.selectedFL===c.fl?'active':'')+'" onclick="state.support.selectedFL=\''+escHtml(c.fl)+'\';showSupportLogs(\''+escHtml(c.fl)+'\');renderSupportList(this.closest(\'.panel-left\').querySelector(\'input\').value)"><div class="fl">'+escHtml(c.fl)+'</div><div class="name">'+escHtml(c.name)+'</div>'+(cnt?'<div style="margin-top:3px"><span class="badge badge-blue">'+cnt+'件</span></div>':'')+
+    var logs=s.supportLogs.filter(function(l){return l.caseFL===c.fl;});
+    var cnt=logs.length;
+    var unres=logs.filter(function(l){return l.resolution==='未解決'||l.resolution==='対応中';}).length;
+    return '<div class="case-item '+(state.support.selectedFL===c.fl?'active':'')+'" onclick="state.support.selectedFL=\''+escHtml(c.fl)+'\';showSupportLogs(\''+escHtml(c.fl)+'\');renderSupportList(this.closest(\'.panel-left\').querySelector(\'input\').value)"><div class="fl">'+escHtml(c.fl)+'</div><div class="name">'+escHtml(c.name)+'</div>'+(cnt?'<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap"><span class="badge badge-blue">'+cnt+'件</span>'+(unres?'<span class="badge badge-red">未解決/対応中'+unres+'</span>':'')+'</div>':'')+
       '</div>';
   }).join('');
 }
@@ -6342,9 +6497,14 @@ function handleBillingFile(input,type){
 function importBillingCSV(type,text){
   var rows=parseCSVRows(text);
   if(rows.length<2){toast('データなし',true);return;}
+  var header=rows[0];
   var data=rows.slice(1);
   var d=getBillingData();
   if(type==='invoices'){
+    // ヘッダー検証: 19列以上必要（col18=ステータスが最低限）
+    if(header.length<19){toast('CSVフォーマットエラー: 列数不足（'+header.length+'列）。請求書CSVを選択してください。',true);return;}
+    var flHeader=header[1]||'';
+    if(flHeader&&!/案件番号|FL|fl/.test(flHeader)){toast('⚠ 注意: FL列（2列目）のヘッダーが「'+flHeader+'」です。正しいCSVか確認してください。');}
     // 請求書一覧: company=0, fl=1, inv=2, product=4, start=5, end=6, amount=15, due=16, paid_date=17, status=18
     var raw=data.map(function(r){
       // col28 = 売上計上日 (YYYY-MM-DD) → YYYY/MM に変換して sales_month として保持
@@ -6370,6 +6530,8 @@ function importBillingCSV(type,text){
     saveBillingData(d);
     toast('請求書 '+d.invoices.length+'件 を取込みました'+(dupCount>0?' （重複 '+dupCount+'件 を除外）':''));
   }else if(type==='erasures'){
+    // ヘッダー検証: 15列以上必要（col14=companyが最低限）
+    if(header.length<15){toast('CSVフォーマットエラー: 列数不足（'+header.length+'列）。消込 CSVを選択してください。',true);return;}
     // 消込: id=0, processed_at=1, method=3, amount=4, inv=5, payment_date=8, payer=9, payment_amount=10, cancel=11, fl=13, company=14
     d.erasures=data.map(function(r){return {
       id:r[0],processed_at:r[1],method:r[3],
@@ -6691,7 +6853,12 @@ function renderPaymentModule(){
       var c=v==='全て'?invoices.length:invoices.filter(function(x){return x.status===v;}).length;
       return '<option value="'+v+'"'+(fSt===v?' selected':'')+'>'+v+'（'+c+'）</option>';
     }).join('');
-    var invRows=filtered.slice(0,300).map(function(x){
+    var PAGE_SIZE=50;
+    var pg=ps.page||0;
+    var pageTotal=Math.ceil(filtered.length/PAGE_SIZE)||1;
+    var pg=Math.min(pg,pageTotal-1); state.payment.page=pg;
+    var paginated=filtered.slice(pg*PAGE_SIZE,(pg+1)*PAGE_SIZE);
+    var invRows=paginated.map(function(x){
       var cfg={完了:{bg:'#ECFDF5',c:'#065F46'},未収:{bg:'#FEF2F2',c:'#991B1B'},未処理:{bg:'#FFFBEB',c:'#92400E'}}[x.status]||{bg:'#F3F4F6',c:'#374151'};
       var badge='<span style="font-size:10px;padding:1px 6px;border-radius:10px;background:'+cfg.bg+';color:'+cfg.c+';font-weight:600">'+escHtml(x.status)+'</span>';
       var er=erasureByInv[x.inv];
@@ -6711,14 +6878,18 @@ function renderPaymentModule(){
     }).join('');
     tabContent=
       '<div class="filter-bar" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">'+
-        '<select onchange="state.payment.statusFilter=this.value;renderPaymentModule()" style="width:auto">'+statusOpts+'</select>'+
-        '<input type="month" value="'+(fYm.replace('/','-'))+'" onchange="state.payment.ymFilter=this.value;renderPaymentModule()" style="width:auto;font-size:12px">'+
+        '<select onchange="state.payment.statusFilter=this.value;state.payment.page=0;renderPaymentModule()" style="width:auto">'+statusOpts+'</select>'+
+        '<input type="month" value="'+(fYm.replace('/','-'))+'" onchange="state.payment.ymFilter=this.value;state.payment.page=0;renderPaymentModule()" style="width:auto;font-size:12px">'+
         (fYm?'<button class="btn btn-secondary btn-sm" onclick="state.payment.ymFilter=\'\';renderPaymentModule()">×月絞込解除</button>':'')+
         '<span style="margin-left:auto;font-size:12px;color:#6b7280">'+filtered.length+'件</span>'+
       '</div>'+
       (filtered.length?
         '<div class="table-wrap"><table><thead><tr><th>FL</th><th>会社名</th><th>請求書番号</th><th>対象月</th><th>商品</th><th style="text-align:right">金額</th><th>ステータス</th><th>支払方法</th><th>期限</th></tr></thead><tbody>'+invRows+'</tbody></table></div>'+
-        (filtered.length>300?'<div style="font-size:11px;color:#9ca3af;padding:8px;text-align:center">300件まで表示</div>':''):
+        (pageTotal>1?'<div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;font-size:13px">'+
+          '<button class="btn btn-secondary btn-sm" '+(pg===0?'disabled':'')+' onclick="state.payment.page='+(pg-1)+';renderPaymentModule()">← 前へ</button>'+
+          '<span style="color:#6b7280">'+(pg+1)+' / '+pageTotal+'ページ</span>'+
+          '<button class="btn btn-secondary btn-sm" '+(pg>=pageTotal-1?'disabled':'')+' onclick="state.payment.page='+(pg+1)+';renderPaymentModule()">次へ →</button>'+
+        '</div>':''):
         '<div class="empty-state"><p>該当なし</p></div>');
 
   }else if(tab===1){
@@ -7160,7 +7331,18 @@ function saveRenewalAction(fl,storeId){
 }
 
 // LEARNING
-modules.learning = function() { renderLearningModule(); };
+modules.learning = function() {
+  if (_meoArticles === null) {
+    document.getElementById('content').innerHTML = '<div style="text-align:center;padding:60px;color:#9ca3af">⏳ MEO学習データを読み込み中...</div>';
+    Promise.all([loadMeoArticles(), loadMeoProgress()]).then(function() {
+      renderLearningModule();
+    }).catch(function(e) {
+      toast('MEO学習の読み込みに失敗しました: ' + (e.message||e), true);
+    });
+    return;
+  }
+  renderLearningModule();
+};
 
 function _getLearningDiffBadge(d) {
   return d==='入門'?'badge-green':d==='基礎'?'badge-blue':d==='応用'?'badge-yellow':'badge-purple';
