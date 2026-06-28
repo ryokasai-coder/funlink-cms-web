@@ -1075,12 +1075,14 @@ modules.dashboard = function() {
   var unpaidRows = unpaidTop.map(function(x){
     return '<tr><td style="font-size:12px;font-weight:600;color:#4F46E5">'+escHtml(x.fl)+'</td><td style="font-size:12px">'+escHtml(x.company)+'</td><td style="text-align:right;font-size:12px;color:#ef4444;font-weight:700">'+fmtMoney(x.amount)+'</td><td style="font-size:11px;color:#9ca3af">'+escHtml(x.due_date||'-')+'</td></tr>';
   }).join('');
-  // LINE未対応件数（キャッシュがあれば即時、なければ非同期で更新）
+  // LINE未対応件数（MASTER_CASESに存在するFL限定でカウント）
   var lineUnread = 0, lineClam = 0;
   if (_lmSummary) {
-    Object.keys(_lmSummary).forEach(function(fl){
-      if (_lmSummary[fl].hasClam) lineClam++;
-      else if (_lmSummary[fl].unread > 0) lineUnread++;
+    MASTER_CASES.forEach(function(c){
+      var info = _lmSummary[c.fl];
+      if (!info) return;
+      if (info.hasClam) lineClam++;
+      else if (info.unread > 0) lineUnread++;
     });
   }
   // チャーンスコア上位（危険ライン：スコア50以上を要注意として表示、最大8件）
@@ -1288,13 +1290,15 @@ modules.dashboard = function() {
     });
   }, 0);
 
-  // LINE未対応件数を非同期で更新（キャッシュ未取得時）
+  // LINE未対応件数を非同期で更新（キャッシュ未取得時・MASTER_CASESに存在するFL限定）
   if (!_lmSummary) {
     _loadLineSummaries().then(function(summary){
       var ur = 0, cl = 0;
-      Object.keys(summary).forEach(function(fl){
-        if (summary[fl].hasClam) cl++;
-        else if (summary[fl].unread > 0) ur++;
+      MASTER_CASES.forEach(function(c){
+        var info = summary[c.fl];
+        if (!info) return;
+        if (info.hasClam) cl++;
+        else if (info.unread > 0) ur++;
       });
       var v = document.getElementById('kpi-line-val');
       var sub = document.getElementById('kpi-line-sub');
@@ -5929,14 +5933,15 @@ function updateSidebarBadges(){
       payEl.appendChild(bp);
     }
   }
-  // LINE：未対応バッジ
+  // LINE：未対応バッジ（MASTER_CASESに存在するFL限定でカウント）
   var lineEl=document.querySelector('[data-module="line"]');
   if(lineEl){
     var exLine=lineEl.querySelector('.nav-badge'); if(exLine) exLine.remove();
     if(_lmSummary){
       var lineCnt=0;
-      Object.keys(_lmSummary).forEach(function(fl){
-        if(_lmSummary[fl].hasClam||_lmSummary[fl].unread>0) lineCnt++;
+      MASTER_CASES.forEach(function(c){
+        var info=_lmSummary[c.fl];
+        if(info&&(info.hasClam||info.unread>0)) lineCnt++;
       });
       if(lineCnt>0){
         var bl=document.createElement('span');
