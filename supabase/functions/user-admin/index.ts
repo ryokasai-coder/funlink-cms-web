@@ -70,13 +70,19 @@ Deno.serve(async (req) => {
       )
     }
 
-    // ユーザー招待（Supabase 内蔵メール送信）
+    // ユーザー招待（仮パスワード方式）
     if (action === 'invite') {
       if (!email) return Response.json({ ok: false, error: 'emailが必要です' }, { headers: corsHeaders })
-      const { error } = await adminSb.auth.admin.inviteUserByEmail(email, {
-        redirectTo: APP_URL
+      // 仮パスワード生成（英大小字+数字8文字）
+      const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+      const rand = crypto.getRandomValues(new Uint8Array(6))
+      const tempPassword = 'Fx' + Array.from(rand).map(b => chars[b % chars.length]).join('')
+      const { error } = await adminSb.auth.admin.createUser({
+        email,
+        password: tempPassword,
+        email_confirm: true
       })
-      return Response.json({ ok: !error, sent: !error, error: error?.message }, { headers: corsHeaders })
+      return Response.json({ ok: !error, tempPassword: error ? undefined : tempPassword, error: error?.message }, { headers: corsHeaders })
     }
 
     // ユーザー削除
