@@ -8920,18 +8920,25 @@ async function inviteUser() {
   if (res.ok) {
     document.getElementById('invite-email').value = '';
     loadUserList();
-    var copied = false;
-    if (res.link && navigator.clipboard) {
-      try { await navigator.clipboard.writeText(res.link); copied = true; } catch(e) {}
+    if (res.sent) {
+      toast('招待メールを ' + email + ' に送信しました ✅');
+    } else if (res.link) {
+      // Resend未設定時のフォールバック：リンクをモーダル表示
+      var copied = false;
+      if (navigator.clipboard) {
+        try { await navigator.clipboard.writeText(res.link); copied = true; } catch(e) {}
+      }
+      openModal('招待リンク',
+        '<div style="margin-bottom:12px;font-size:13px;color:#374151"><b>'+escHtml(email)+'</b> の招待リンクを生成しました。</div>'+
+        (copied ? '<div style="background:#f0fdf4;color:#059669;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;font-weight:600">✅ クリップボードにコピー済み</div>' : '')+
+        '<textarea readonly style="width:100%;height:80px;font-size:11px;font-family:monospace;border:1px solid #e5e7eb;border-radius:6px;padding:8px;resize:none;color:#374151">'+escHtml(res.link||'')+'</textarea>'+
+        '<div style="font-size:11px;color:#9ca3af;margin-top:6px">このリンクを本人に送ってください。リンクは24時間で無効になります。</div>',
+        '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>');
+    } else {
+      toast('招待メールを送信しました');
     }
-    openModal('招待リンク',
-      '<div style="margin-bottom:12px;font-size:13px;color:#374151"><b>'+escHtml(email)+'</b> の招待リンクを生成しました。</div>'+
-      (copied ? '<div style="background:#f0fdf4;color:#059669;padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;font-weight:600">✅ クリップボードにコピー済み</div>' : '')+
-      '<textarea readonly style="width:100%;height:80px;font-size:11px;font-family:monospace;border:1px solid #e5e7eb;border-radius:6px;padding:8px;resize:none;color:#374151">'+escHtml(res.link||'')+'</textarea>'+
-      '<div style="font-size:11px;color:#9ca3af;margin-top:6px">このリンクを本人に送ってください（Slack・メール等）。リンクは24時間で無効になります。</div>',
-      '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>');
   } else {
-    toast('エラー: ' + (res.error || '生成失敗'), true);
+    toast('エラー: ' + (res.error || '送信失敗'), true);
   }
 }
 
@@ -8945,6 +8952,7 @@ async function deleteUser(userId, email) {
 async function resetUserPassword(email) {
   var res = await callUserAdmin('reset', { email: email });
   if (!res.ok) { toast('エラー: ' + (res.error || '失敗'), true); return; }
+  if (res.sent) { toast('パスワードリセットメールを ' + email + ' に送信しました ✅'); return; }
   if (res.link) {
     var copied = false;
     if (navigator.clipboard) {
