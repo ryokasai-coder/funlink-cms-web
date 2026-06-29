@@ -45,7 +45,10 @@ Deno.serve(async (req) => {
 
     const adminSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
     const body = await req.json()
-    const { action, email, userId, role } = body
+    const { action, email, userId, role, redirectTo: clientRedirectTo } = body
+    // フロントが送った origin を優先（localhost で生成しても本番URLになる）
+    const PROD_URL = 'https://funlink-cms-web.vercel.app'
+    const redirectTo = clientRedirectTo || PROD_URL
 
     // ユーザー一覧取得
     if (action === 'list') {
@@ -62,7 +65,7 @@ Deno.serve(async (req) => {
       const { data, error } = await adminSb.auth.admin.generateLink({
         type: 'invite',
         email: email,
-        options: { redirectTo: req.headers.get('origin') || 'http://localhost:5501' }
+        options: { redirectTo }
       })
       return Response.json({
         ok: !error,
@@ -84,7 +87,7 @@ Deno.serve(async (req) => {
       const { data, error } = await adminSb.auth.admin.generateLink({
         type: 'recovery',
         email: email,
-        options: { redirectTo: req.headers.get('origin') || 'http://localhost:5501' }
+        options: { redirectTo }
       })
       return Response.json({
         ok: !error,

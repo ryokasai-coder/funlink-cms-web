@@ -8734,7 +8734,7 @@ async function callUserAdmin(action, params) {
   var r = await fetch(USER_ADMIN_URL, {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify(Object.assign({ action: action }, params || {}))
+    body: JSON.stringify(Object.assign({ action: action, redirectTo: window.location.origin }, params || {}))
   });
   return r.json();
 }
