@@ -45,10 +45,9 @@ Deno.serve(async (req) => {
 
     const adminSb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
     const body = await req.json()
-    const { action, email, userId, role, redirectTo: clientRedirectTo } = body
-    // フロントが送った origin を優先（localhost で生成しても本番URLになる）
-    const PROD_URL = 'https://funlink-cms-web.vercel.app'
-    const redirectTo = clientRedirectTo || PROD_URL
+    const { action, email, userId, role } = body
+    // ローカルで生成しても必ず本番URLにリダイレクト
+    const redirectTo = 'https://funlink-cms-web.vercel.app'
 
     // ユーザー一覧取得
     if (action === 'list') {
