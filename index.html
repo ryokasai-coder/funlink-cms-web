@@ -493,6 +493,8 @@ function showOnboarding() {
     document.getElementById('ob-btn').textContent = i < steps.length-1 ? '次へ →' : 'はじめる';
     steps.forEach(function(_, j){ var d=document.getElementById('ob-dot-'+j); if(d) d.style.background = j===i?'#3b82f6':'#d1d5db'; });
   }
+  window._obSteps = steps;
+  window._obStep = 0;
   openModal('Funlink CMS へようこそ！',
     '<div style="text-align:center;padding:20px 10px">' +
     '<div id="ob-icon" style="font-size:52px;margin-bottom:16px">' + steps[0].icon + '</div>' +
@@ -501,18 +503,27 @@ function showOnboarding() {
     '<div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px">' + dotsHtml + '</div>' +
     '</div>',
     '<button class="btn btn-secondary" onclick="closeModal()">スキップ</button>' +
-    '<button id="ob-btn" class="btn btn-primary" onclick="(function(){' +
-    'var c=window._obStep=(window._obStep||0)+1;' +
-    'if(c>=' + steps.length + '){closeModal();localStorage.setItem(\'funlink_onboard_done\',1);}' +
-    'else{window._obStep=c;' +
-    'document.getElementById(\'ob-icon\').textContent=[' + steps.map(function(s){return JSON.stringify(s.icon);}).join(',') + '][c];' +
-    'document.getElementById(\'ob-title\').textContent=[' + steps.map(function(s){return JSON.stringify(s.title);}).join(',') + '][c];' +
-    'document.getElementById(\'ob-desc\').textContent=[' + steps.map(function(s){return JSON.stringify(s.desc);}).join(',') + '][c];' +
-    'document.getElementById(\'ob-btn\').textContent=c>=' + (steps.length-1) + '?\'はじめる\':\'次へ →\';' +
-    '[' + steps.map(function(_,i){return '"ob-dot-'+i+'"';}).join(',') + '].forEach(function(id,j){var d=document.getElementById(id);if(d)d.style.background=j===c?\'#3b82f6\':\'#d1d5db\';});' +
-    '}})()">次へ →</button>'
+    '<button id="ob-btn" class="btn btn-primary" onclick="obNext()">次へ →</button>'
   );
-  window._obStep = 0;
+}
+
+function obNext() {
+  var c = (window._obStep || 0) + 1;
+  var steps = window._obSteps || [];
+  window._obStep = c;
+  if (c >= steps.length) {
+    closeModal();
+    localStorage.setItem('funlink_onboard_done', 1);
+    return;
+  }
+  document.getElementById('ob-icon').textContent = steps[c].icon;
+  document.getElementById('ob-title').textContent = steps[c].title;
+  document.getElementById('ob-desc').textContent = steps[c].desc;
+  document.getElementById('ob-btn').textContent = c >= steps.length - 1 ? 'はじめる' : '次へ →';
+  for (var j = 0; j < steps.length; j++) {
+    var d = document.getElementById('ob-dot-' + j);
+    if (d) d.style.background = j === c ? '#3b82f6' : '#d1d5db';
+  }
 }
 
 async function initAppFromDrive() {
