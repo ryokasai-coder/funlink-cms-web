@@ -70,53 +70,13 @@ Deno.serve(async (req) => {
       )
     }
 
-    // ユーザー招待：リンク生成 → Resend でメール送信
+    // ユーザー招待（Supabase 内蔵メール送信）
     if (action === 'invite') {
       if (!email) return Response.json({ ok: false, error: 'emailが必要です' }, { headers: corsHeaders })
-
-      const { data, error } = await adminSb.auth.admin.generateLink({
-        type: 'invite',
-        email: email,
-        options: { redirectTo: APP_URL }
+      const { error } = await adminSb.auth.admin.inviteUserByEmail(email, {
+        redirectTo: APP_URL
       })
-      if (error || !data?.properties?.action_link) {
-        return Response.json({ ok: false, error: error?.message || 'リンク生成失敗' }, { headers: corsHeaders })
-      }
-
-      const inviteLink = data.properties.action_link
-
-      if (RESEND_API_KEY) {
-        // Resend でメール送信
-        const html = `
-<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-  <h2 style="color:#1e3a5f;margin-bottom:8px">Funrix CMS へのご招待</h2>
-  <p style="color:#374151;font-size:14px;line-height:1.6">
-    Funrix の顧客管理システムにご招待しました。<br>
-    下のボタンからパスワードを設定してログインしてください。
-  </p>
-  <div style="text-align:center;margin:32px 0">
-    <a href="${inviteLink}"
-       style="background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;display:inline-block">
-      パスワードを設定してログイン
-    </a>
-  </div>
-  <p style="color:#9ca3af;font-size:12px">
-    ※ このリンクは24時間有効です。<br>
-    ※ このメールに心当たりのない場合は無視してください。
-  </p>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-  <p style="color:#9ca3af;font-size:11px;text-align:center">Funrix CMS</p>
-</div>`
-
-        const mailRes = await sendEmail(RESEND_API_KEY, email, 'Funrix CMS へのご招待', html)
-        return Response.json(
-          { ok: mailRes.ok, sent: mailRes.ok, error: mailRes.ok ? undefined : mailRes.error },
-          { headers: corsHeaders }
-        )
-      }
-
-      // RESEND_API_KEY 未設定の場合はリンクを返す（手動共有）
-      return Response.json({ ok: true, link: inviteLink }, { headers: corsHeaders })
+      return Response.json({ ok: !error, sent: !error, error: error?.message }, { headers: corsHeaders })
     }
 
     // ユーザー削除
@@ -126,53 +86,19 @@ Deno.serve(async (req) => {
       return Response.json({ ok: !error, error: error?.message }, { headers: corsHeaders })
     }
 
-    // パスワードリセットリンク生成 → Resend でメール送信
+    // パスワードリセットリンク生成（管理者がモーダルでコピーして手動送信）
     if (action === 'reset') {
       if (!email) return Response.json({ ok: false, error: 'emailが必要です' }, { headers: corsHeaders })
-
       const { data, error } = await adminSb.auth.admin.generateLink({
         type: 'recovery',
         email: email,
         options: { redirectTo: APP_URL }
       })
-      if (error || !data?.properties?.action_link) {
-        return Response.json({ ok: false, error: error?.message || 'リンク生成失敗' }, { headers: corsHeaders })
-      }
-
-      const resetLink = data.properties.action_link
-
-      if (RESEND_API_KEY) {
-        const html = `
-<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-  <h2 style="color:#1e3a5f;margin-bottom:8px">パスワードリセット</h2>
-  <p style="color:#374151;font-size:14px;line-height:1.6">
-    Funrix CMS のパスワードリセットが申請されました。<br>
-    下のボタンから新しいパスワードを設定してください。
-  </p>
-  <div style="text-align:center;margin:32px 0">
-    <a href="${resetLink}"
-       style="background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;display:inline-block">
-      パスワードを再設定する
-    </a>
-  </div>
-  <p style="color:#9ca3af;font-size:12px">
-    ※ このリンクは1時間有効です。<br>
-    ※ このメールに心当たりのない場合は無視してください。
-  </p>
-  <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
-  <p style="color:#9ca3af;font-size:11px;text-align:center">Funrix CMS</p>
-</div>`
-
-        const mailRes = await sendEmail(RESEND_API_KEY, email, 'Funrix CMS パスワードリセット', html)
-        if (mailRes.ok) {
-          return Response.json({ ok: true, sent: true }, { headers: corsHeaders })
-        }
-        // メール送信失敗時はリンクを返す
-        return Response.json({ ok: true, link: resetLink, error: mailRes.error }, { headers: corsHeaders })
-      }
-
-      // RESEND_API_KEY 未設定の場合はリンクを返す
-      return Response.json({ ok: true, link: resetLink }, { headers: corsHeaders })
+      return Response.json({
+        ok: !error,
+        link: data?.properties?.action_link,
+        error: error?.message
+      }, { headers: corsHeaders })
     }
 
     // ロール変更（user_metadata.role を更新）
