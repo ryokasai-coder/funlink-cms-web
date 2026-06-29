@@ -56,13 +56,19 @@ Deno.serve(async (req) => {
       )
     }
 
-    // ユーザー招待（メールリンクから本人が初回パスワード設定）
+    // ユーザー招待リンク生成（SMTP不要・管理者がリンクを手動で共有）
     if (action === 'invite') {
       if (!email) return Response.json({ ok: false, error: 'emailが必要です' }, { headers: corsHeaders })
-      const { error } = await adminSb.auth.admin.inviteUserByEmail(email, {
-        redirectTo: req.headers.get('origin') || 'http://localhost:5501'
+      const { data, error } = await adminSb.auth.admin.generateLink({
+        type: 'invite',
+        email: email,
+        options: { redirectTo: req.headers.get('origin') || 'http://localhost:5501' }
       })
-      return Response.json({ ok: !error, error: error?.message }, { headers: corsHeaders })
+      return Response.json({
+        ok: !error,
+        link: data?.properties?.action_link,
+        error: error?.message
+      }, { headers: corsHeaders })
     }
 
     // ユーザー削除
