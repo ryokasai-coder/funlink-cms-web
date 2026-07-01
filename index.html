@@ -1180,17 +1180,6 @@ function paginate(items, page, perPage) {
   var p = Math.min(page, pages);
   return { items: items.slice((p-1)*perPage, p*perPage), page: p, pages: pages, total: total };
 }
-function renderPagination(pages, current, onClickFn) {
-  if (pages <= 1) return '';
-  var btns = '<button ' + (current<=1?'disabled':'') + ' onclick="' + onClickFn + '(' + (current-1) + ')">◄</button>';
-  var start = Math.max(1, current-2), end = Math.min(pages, current+2);
-  if (start > 1) btns += '<button onclick="' + onClickFn + '(1)">1</button>' + (start>2?'<span>...</span>':'');
-  for (var i=start; i<=end; i++) btns += '<button class="' + (i===current?'active':'') + '" onclick="' + onClickFn + '(' + i + ')">' + i + '</button>';
-  if (end < pages) btns += (end<pages-1?'<span>...</span>':'') + '<button onclick="' + onClickFn + '(' + pages + ')">' + pages + '</button>';
-  btns += '<button ' + (current>=pages?'disabled':'') + ' onclick="' + onClickFn + '(' + (current+1) + ')">►</button>';
-  return '<div class="pagination">' + btns + '</div>';
-}
-
 // Case selector
 var _caseSelCallback = null;
 function renderCaseSelector(containerId, cb) {
@@ -1235,27 +1224,6 @@ var GLOSSARY = {
   'LTV': 'Life Time Value（顧客生涯価値）。契約開始から現在までの請求合計額。',
   'クチコミKPI': 'Googleマップのクチコミ件数・星評価の月次推移指標。'
 };
-function tipHtml(term) {
-  var desc = GLOSSARY[term] || '';
-  if (!desc) return escHtml(term);
-  return '<span class="tip">' + escHtml(term) + '<span class="tip-icon">?</span><span class="tip-box">' + escHtml(desc) + '</span></span>';
-}
-
-// ---- スケルトンローディング ----
-function showSkeleton(containerId, rows) {
-  rows = rows || 4;
-  var html = '';
-  for (var i = 0; i < rows; i++) {
-    html += '<div class="skeleton-card">' +
-      '<span class="skeleton" style="height:12px;width:40%;margin-bottom:10px;display:block"></span>' +
-      '<span class="skeleton" style="height:20px;width:70%;margin-bottom:6px;display:block"></span>' +
-      '<span class="skeleton" style="height:12px;width:55%;display:block"></span>' +
-      '</div>';
-  }
-  var el = document.getElementById(containerId);
-  if (el) el.innerHTML = html;
-}
-
 // ---- モジュールヘルプテキスト ----
 var MODULE_HELP = {
   dashboard: 'KPIカード・アラート・チャーンスコアで今日の優先事項を把握できます。赤いアラートが表示されたら最優先で対応してください。',
