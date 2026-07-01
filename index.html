@@ -3685,23 +3685,18 @@ async function showLineThread(fl) {
   msgs = results[0]; lockResult = results[1];
   var meoUrl = c.stores && c.stores[0] ? c.stores[0].meo : '';
   var catColors = {'管理画面':'#dbeafe','写真':'#d1fae5','クチコミ':'#ede9fe','解約':'#fee2e2','請求':'#fef3c7','LINE':'#fce7f3','その他':'#f3f4f6','FunLink返信':'#f0fdf4'};
-  var stCls = {'未対応':'badge-red','対応中':'badge-yellow','対応完了':'badge-green','クレーム':'badge-red'};
   threadEl = document.getElementById('line-thread');
   if (!threadEl) return;
 
   var cats = ['全て','管理画面','写真','クチコミ','解約','請求','LINE','その他'];
-  var statuses = ['全て','未対応','対応中','対応完了','クレーム'];
   var mcf = state.line.msgCatFilter || 'all';
-  var msf = state.line.msgStatusFilter || 'all';
   var catOpts = cats.map(function(c){ var v=c==='全て'?'all':c; return '<option value="'+v+'"'+(mcf===v?' selected':'')+'>'+c+'</option>'; }).join('');
-  var stOpts = statuses.map(function(s){ var v=s==='全て'?'all':s; return '<option value="'+v+'"'+(msf===v?' selected':'')+'>'+s+'</option>'; }).join('');
   var staffList = getCsStaffList();
   var staffOpts = '<option value="">担当者を選択</option>'+staffList.map(function(n){ return '<option>'+escHtml(n)+'</option>'; }).join('');
 
   // フィルタ適用後のbubbles
   var filteredMsgs = msgs.filter(function(m){
     if (mcf !== 'all' && m.category !== mcf) return false;
-    if (msf !== 'all' && m.status !== msf) return false;
     return true;
   });
   var _lastCustIdx = -1;
@@ -3718,11 +3713,9 @@ async function showLineThread(fl) {
       '<div style="background:'+(isCust?'#fff':'#006dd2')+';color:'+(isCust?'#1f2937':'#fff')+';border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,.1)">'+escHtml(m.message)+'</div>' +
       '<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;justify-content:'+(isCust?'flex-start':'flex-end')+'">' +
       '<span class="badge" style="background:'+bg+';color:#374151">'+escHtml(m.category||'')+'</span>' +
-      (isCust?'<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+escHtml(m.status||'')+'</span>':'') +
       (m.reply_draft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.reply_draft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})"><svg class=ic><use href=#i-clipboard /></svg> 返信案</span>':'')+'</div>' +
       (m.reply_draft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #006dd2;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.reply_draft)+'</div>':'') +
       '<div style="margin-top:4px;text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-      (isCust&&m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">完了</button>':'') +
       '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button></div>' +
       '</div></div>';
   });
@@ -3757,8 +3750,6 @@ async function showLineThread(fl) {
     '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap">' +
     '<label style="font-size:11px;color:#6b7280;font-weight:600;margin:0">カテゴリ:</label>' +
     '<select style="font-size:12px;padding:3px 8px;border:1px solid #d1d5db;border-radius:6px;min-width:0" onchange="state.line.msgCatFilter=this.value;showLineThread(\''+escHtml(fl)+'\')">'+catOpts+'</select>' +
-    '<label style="font-size:11px;color:#6b7280;font-weight:600;margin:0">ステータス:</label>' +
-    '<select style="font-size:12px;padding:3px 8px;border:1px solid #d1d5db;border-radius:6px;min-width:0" onchange="state.line.msgStatusFilter=this.value;showLineThread(\''+escHtml(fl)+'\')">'+stOpts+'</select>' +
     (filteredMsgs.length !== msgs.length ? '<span style="font-size:11px;color:#6b7280">'+filteredMsgs.length+'/'+msgs.length+'件表示</span>' : '') +
     '</div></div>' +
     // メッセージ一覧
@@ -3812,13 +3803,6 @@ function lineComposeKey(e, fl) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveLineReply(fl); }
 }
 
-async function markLineDone(id, fl){
-  await _sb.from('line_messages').update({ status: '対応完了' }).eq('id', id);
-  _writeLineOpLog(fl || state.line.selectedFL, id, 'done'); // P3: 操作ログ
-  _invalidateLmCache(fl);
-  showLineThread(fl || state.line.selectedFL);
-  toast('完了にしました');
-}
 async function deleteLineMsg(id, fl){
   if(!confirm('削除しますか？'))return;
   _writeLineOpLog(fl || state.line.selectedFL, id, 'deleted'); // P3: 操作ログ（削除前に記録）
