@@ -3686,25 +3686,6 @@ async function showLineThread(fl) {
   var meoUrl = c.stores && c.stores[0] ? c.stores[0].meo : '';
   var catColors = {'管理画面':'#dbeafe','写真':'#d1fae5','クチコミ':'#ede9fe','解約':'#fee2e2','請求':'#fef3c7','LINE':'#fce7f3','その他':'#f3f4f6','FunLink返信':'#f0fdf4'};
   var stCls = {'未対応':'badge-red','対応中':'badge-yellow','対応完了':'badge-green','クレーム':'badge-red'};
-  var bubbles = msgs.map(function(m){
-    var isCust = m.sender==='顧客';
-    var bg = catColors[m.category]||'#f3f4f6';
-    var nameLabel = isCust && m.sender_name ? escHtml(m.sender_name) : (isCust ? '顧客' : 'FunLink');
-    var dateStr = (m.created_at||m.date||'').slice(0,16).replace('T',' ');
-    return '<div style="display:flex;justify-content:'+(isCust?'flex-start':'flex-end')+';margin-bottom:16px">' +
-      '<div style="max-width:72%">' +
-      '<div style="font-size:11px;color:#9ca3af;margin-bottom:3px;text-align:'+(isCust?'left':'right')+'">'+dateStr+' \xb7 <b>'+nameLabel+'</b></div>' +
-      '<div style="background:'+(isCust?'#fff':'#006dd2')+';color:'+(isCust?'#1f2937':'#fff')+';border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,.1)">'+escHtml(m.message)+'</div>' +
-      '<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;justify-content:'+(isCust?'flex-start':'flex-end')+'">' +
-      '<span class="badge" style="background:'+bg+';color:#374151">'+escHtml(m.category||'')+'</span>' +
-      '<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+escHtml(m.status||'')+'</span>' +
-      (m.reply_draft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.reply_draft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})">&#128203; 返信案</span>':'')+'</div>' +
-      (m.reply_draft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #006dd2;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.reply_draft)+'</div>':'') +
-      '<div style="margin-top:4px;text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-      (m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">完了</button>':'') +
-      '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button></div>' +
-      '</div></div>';
-  }).join('');
   threadEl = document.getElementById('line-thread');
   if (!threadEl) return;
 
@@ -3831,38 +3812,12 @@ function lineComposeKey(e, fl) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveLineReply(fl); }
 }
 
-function toggleSenderName(val) {
-  var wrap = document.getElementById('lm_sender_name_wrap');
-  if (wrap) wrap.style.display = val === '顧客' ? '' : 'none';
-}
-
 async function markLineDone(id, fl){
   await _sb.from('line_messages').update({ status: '対応完了' }).eq('id', id);
   _writeLineOpLog(fl || state.line.selectedFL, id, 'done'); // P3: 操作ログ
   _invalidateLmCache(fl);
   showLineThread(fl || state.line.selectedFL);
   toast('完了にしました');
-}
-async function saveLineMsg(fl){
-  var msg=(document.getElementById('lm_msg')||{}).value||'';
-  if(!msg.trim()){toast('メッセージ内容は必須です');return;}
-  var now = new Date().toISOString();
-  await _sb.from('line_messages').insert({
-    id: uid(),
-    case_fl: fl,
-    date: (document.getElementById('lm_date')||{}).value||today(),
-    sender: (document.getElementById('lm_sender')||{}).value||'顧客',
-    sender_name: (document.getElementById('lm_sender_name')||{}).value||'',
-    assignee: (document.getElementById('lm_assignee')||{}).value||'',
-    category: (document.getElementById('lm_cat')||{}).value||'その他',
-    message: msg,
-    reply_draft: (document.getElementById('lm_reply')||{}).value||'',
-    status: (document.getElementById('lm_status')||{}).value||'未対応',
-    created_at: now,
-  });
-  _invalidateLmCache(fl);
-  showLineThread(fl);
-  toast('追加しました');
 }
 async function deleteLineMsg(id, fl){
   if(!confirm('削除しますか？'))return;
