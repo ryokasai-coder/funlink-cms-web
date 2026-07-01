@@ -3253,7 +3253,10 @@ function openContractStoreForm(fl,storeId){
       '<div class="form-group"><label>動画制作本数（月）</label><input type="number" id="csf-video" value="'+escHtml(String(st&&st.video_count_monthly!=null?st.video_count_monthly:''))+'"></div>'+
       '<div class="form-group"><label>定例MTG頻度</label><select id="csf-mtgfreq"><option value="">選択</option>'+mtgOpts+'</select></div>'+
     '</div>'+
-    (storeId?'<div class="form-group"><label>解約日</label><input type="date" id="csf-cancel" value="'+escHtml(st?st.cancellation_date||'':'')+'"></div>':'')+
+    (storeId?'<div class="form-row">'+
+      '<div class="form-group"><label>解約申請受領日<span style="font-size:10px;color:#9ca3af;margin-left:4px">申請を受けた日（先行指標）</span></label><input type="date" id="csf-cancel-applied" value="'+escHtml(st?st.cancellation_applied_date||'':'')+'"></div>'+
+      '<div class="form-group"><label>解約日<span style="font-size:10px;color:#9ca3af;margin-left:4px">課金停止月</span></label><input type="date" id="csf-cancel" value="'+escHtml(st?st.cancellation_date||'':'')+'"></div>'+
+    '</div>':'')+
     '<div class="form-group"><label>メモ</label><textarea id="csf-memo" rows="2">'+escHtml(st?st.memo||'':'')+'</textarea></div>',
     (storeId?'<button class="btn btn-danger" onclick="deleteContractStore(\''+escHtml(fl)+'\',\''+escHtml(storeId)+'\')">削除</button><span style="flex:1"></span>':'')+
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>'+
@@ -3269,6 +3272,7 @@ function saveContractStore(fl,storeId){
   var name=(document.getElementById('csf-name').value||'').trim();
   if(!name){toast('店舗名を入力してください',true);return;}
   var cancelEl=document.getElementById('csf-cancel');
+  var cancelAppliedEl=document.getElementById('csf-cancel-applied');
   var obj={
     store_id:storeId||uid(),
     store_name:name,
@@ -3288,6 +3292,7 @@ function saveContractStore(fl,storeId){
     video_count_monthly:document.getElementById('csf-video').value,
     meeting_frequency:document.getElementById('csf-mtgfreq').value,
     cancellation_date:cancelEl?cancelEl.value:'',
+    cancellation_applied_date:cancelAppliedEl?cancelAppliedEl.value:'',
     memo:document.getElementById('csf-memo').value,
     updated_at:today()
   };
@@ -6390,7 +6395,7 @@ function buildContractFyData(fy,months){
   //  - 更新確定 = 更新対象のうち、その月が現在月以前かつ解約前（＝実際に更新を越えて継続した）
   //  - 解約確定(月) = cancellation_date の月
   //  - 継続率 = 更新確定 ÷ 更新対象
-  //  - 解約申請受領(cancelApplied): 契約ストアに該当ステータスが無いため常に0（必要なら専用フィールドで対応）
+  //  - 解約申請受領(cancelApplied) = cancellation_applied_date の月の monthly_fee 合計（解約確定に先行する見込み指標）
   var mrrM={},rtM={},rcM={},caM={},ccM={},rtCntM={},rcCntM={};
   months.forEach(function(m){mrrM[m]=0;rtM[m]=0;rcM[m]=0;caM[m]=0;ccM[m]=0;rtCntM[m]=0;rcCntM[m]=0;});
   // 日付文字列 → 'YYYY/MM'
@@ -6418,6 +6423,7 @@ function buildContractFyData(fy,months){
       if(!fee||!startYm) return;
       storeCount++;
       var cancelYm=toYM(st.cancellation_date);
+      var cancelAppliedYm=toYM(st.cancellation_applied_date);
       var period=parseInt(st.renewal_period_months,10)||0;
       // MRR: 課金開始月～解約月の前月まで在籍
       months.forEach(function(ym){
@@ -6427,6 +6433,8 @@ function buildContractFyData(fy,months){
       });
       // 解約確定MRR: 解約日の月
       if(cancelYm && ccM.hasOwnProperty(cancelYm)) ccM[cancelYm]+=fee;
+      // 解約申請受領MRR: 申請受領日の月（解約確定に先行する見込み）
+      if(cancelAppliedYm && caM.hasOwnProperty(cancelAppliedYm)) caM[cancelAppliedYm]+=fee;
       // 更新対象/更新確定: 更新境界月 = 課金開始月 + k×更新期間 − 1ヶ月
       if(period>0){
         var maxK=Math.floor(240/period)+2; // 上限ガード（最長20年分）
