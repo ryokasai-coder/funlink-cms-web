@@ -2511,6 +2511,7 @@ function renderContract(){
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
           '<select style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:4px" onchange="state.contract.fy=parseInt(this.value);renderContract()">'+fyOpts.join('')+'</select>'+
           (syncedCount>0?'<button class="btn btn-primary btn-sm" onclick="migrateFlContractsToStores()"><svg class=ic><use href=#i-download /></svg> シートデータを取込（'+syncedCount+'件）</button>':'')+
+          '<button class="btn btn-secondary btn-sm" id="sync-cancel-form-btn" onclick="syncCancellationForm()"><svg class=ic><use href=#i-download /></svg> 解約フォーム同期</button>'+
           '<button class="btn btn-secondary btn-sm" onclick="exportContractCSV()"><svg class=ic><use href=#i-upload /></svg> CSV出力</button>'+
           '<label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0"><svg class=ic><use href=#i-download /></svg> CSV取込<input type="file" accept=".csv" style="display:none" onchange="importContractCSV(this.files[0]);this.value=\'\'"></label>'+
           '<button class="btn btn-secondary btn-sm" onclick="var b=document.getElementById(\'cfy-body\');b.style.display=b.style.display===\'none\'?\'\':\'none\'">折りたたむ</button>'+
@@ -6668,14 +6669,16 @@ async function importContractCSV(file){
     if(lines.length<2){toast('CSVにデータがありません',true);return;}
     var rawHeaders=parseCSVRow(lines[0]);
     var hi={};rawHeaders.forEach(function(h,i){hi[h.trim()]=i;});
-    if(hi['FL番号']===undefined){toast('ヘッダーに「FL番号」列が必要です',true);return;}
+    // FL識別列: エクスポートは「案件番号」、旧形式は「FL番号」の両方を許容（往復インポート対応）
+    var flColIdx=hi['案件番号']!==undefined?hi['案件番号']:hi['FL番号'];
+    if(flColIdx===undefined){toast('ヘッダーに「案件番号」または「FL番号」列が必要です',true);return;}
     var s0=getStore();
     if(!s0.contracts)s0.contracts={};
     if(!s0.contracts.fl_contracts)s0.contracts.fl_contracts={};
     var updatedM=0,updatedF=0,notFound=[];
     for(var i=1;i<lines.length;i++){
       var cols=parseCSVRow(lines[i]);
-      var fl=(cols[hi['FL番号']]||'').trim(); if(!fl) continue;
+      var fl=(cols[flColIdx]||'').trim(); if(!fl) continue;
       var get=function(key){return hi[key]!==undefined?(cols[hi[key]]||'').trim():'';};
       // MASTER_CASES更新
       var mc=MASTER_CASES.find(function(x){return x.fl===fl;});
@@ -6749,6 +6752,53 @@ function syncFunlinkContracts(){
     .catch(function(e){
       toast('同期エラー: '+e.message,true);
       if(btn){btn.disabled=false;btn.innerHTML='<svg class=ic><use href=#i-download /></svg> シートから同期';}
+    });
+}
+// 解約フォーム（Googleフォーム回答）を同期し、各FLの契約店舗へ「解約申請受領日」を反映
+// タイムスタンプ=申請受領日。フォームを正とし、FL配下の全店舗に設定（複数申請は最新日を採用）
+function syncCancellationForm(){
+  var btn=document.getElementById('sync-cancel-form-btn');
+  var restore=function(){var b=document.getElementById('sync-cancel-form-btn');if(b){b.disabled=false;b.innerHTML='<svg class=ic><use href=#i-download /></svg> 解約フォーム同期';}};
+  if(!GAS_DRIVE_URL){toast('先に設定画面でGAS URLを設定してください',true);return;}
+  if(btn){btn.disabled=true;btn.textContent='同期中...';}
+  fetch(GAS_DRIVE_URL+'?key=funlink_cancellations',{cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(!res.ok)throw new Error(res.error||'取得失敗');
+      var records=res.data||[];
+      // FLごとに最新の申請受領日を採用（YYYY-MM-DD文字列比較）
+      var flApplied={};
+      records.forEach(function(rec){
+        if(!rec||!rec.fl||!rec.applied_date)return;
+        var ymd=String(rec.applied_date).replace(/\//g,'-').slice(0,10);
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(ymd))return;
+        if(!flApplied[rec.fl]||ymd>flApplied[rec.fl])flApplied[rec.fl]=ymd;
+      });
+      var applications=Object.keys(flApplied).length;
+      // 契約ストアへ反映
+      var d=getContracts();
+      var stores=d.stores||{};
+      var updatedFL=0,updatedStores=0,noStore=[];
+      Object.keys(flApplied).forEach(function(fl){
+        var applied=flApplied[fl];
+        var arr=stores[fl];
+        if(!arr||!arr.length){noStore.push(fl);return;}
+        var touched=false;
+        arr.forEach(function(st){
+          if(st.cancellation_applied_date!==applied){st.cancellation_applied_date=applied;updatedStores++;touched=true;}
+        });
+        if(touched)updatedFL++;
+      });
+      d.cancel_form_synced_at=today();
+      saveContracts(d);
+      var msg='解約フォーム同期完了 — 申請'+applications+'件 / '+updatedFL+'社・'+updatedStores+'店舗に反映';
+      if(noStore.length)msg+='（契約ストア未作成でスキップ: '+noStore.length+'件）';
+      toast(msg);
+      if(state.current==='contract')renderContract();else restore();
+    })
+    .catch(function(e){
+      toast('解約フォーム同期エラー: '+e.message,true);
+      restore();
     });
 }
 function cleanupBillingData(){
