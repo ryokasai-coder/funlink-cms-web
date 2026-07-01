@@ -85,49 +85,52 @@ Deno.serve(async (req) => {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
   for (const event of (body.events || [])) {
-    const userId: string | undefined = event.source?.userId
-    if (!userId) continue
+    const src = event.source || {}
+    const userId: string | undefined = src.userId
+    const groupId: string | undefined = src.groupId || src.roomId  // グループ/複数人トーク
+    const keyId: string | undefined = groupId || userId            // 保存・マッピングのキー
+    if (!keyId) continue
 
     const ts = new Date(event.timestamp).toISOString()
     const dateStr = ts.slice(0, 10)
 
-    // line_user_fl_map からFLコードと表示名を取得
+    // line_user_fl_map からFLコードと表示名を取得（グループ/ルームは groupId をキーにする）
     const { data: mapping } = await sb
       .from('line_user_fl_map')
       .select('fl_code, display_name')
-      .eq('line_user_id', userId)
+      .eq('line_user_id', keyId)
       .single()
 
-    const flCode: string = mapping?.fl_code || userId
+    const flCode: string = mapping?.fl_code || keyId
     let displayName: string = mapping?.display_name || ''
 
     // フォロー（友だち追加）イベント
     if (event.type === 'follow') {
-      if (!displayName) {
+      if (!displayName && userId) {
         displayName = await getLineDisplayName(userId, ACCESS_TOKEN)
       }
       await sb.from('line_user_fl_map').upsert({
-        line_user_id: userId,
+        line_user_id: keyId,
         display_name: displayName,
         fl_code: mapping?.fl_code || null,
       }, { onConflict: 'line_user_id' })
-      console.log('Follow event:', userId, displayName)
+      console.log('Follow event:', keyId, displayName)
       continue
     }
 
     // アンフォロー（ブロック）
     if (event.type === 'unfollow') {
-      console.log('Unfollow event:', userId)
+      console.log('Unfollow event:', keyId)
       continue
     }
 
     // メッセージイベント
     if (event.type === 'message') {
-      // 未登録ユーザーのプロフィール取得・登録
+      // 未登録の送信元はプロフィール取得・登録（グループは userId があればメンバー名、無ければ「グループ」）
       if (!displayName) {
-        displayName = await getLineDisplayName(userId, ACCESS_TOKEN)
+        displayName = userId ? await getLineDisplayName(userId, ACCESS_TOKEN) : 'グループ'
         await sb.from('line_user_fl_map').upsert({
-          line_user_id: userId,
+          line_user_id: keyId,
           display_name: displayName,
           fl_code: null,
         }, { onConflict: 'line_user_id' })
@@ -153,9 +156,9 @@ Deno.serve(async (req) => {
       })
 
       if (error) {
-        console.error('Insert error:', error.message, 'fl:', flCode, 'user:', userId)
+        console.error('Insert error:', error.message, 'fl:', flCode, 'key:', keyId)
       } else {
-        console.log('Message saved:', userId, '->', flCode, msgType)
+        console.log('Message saved:', keyId, '->', flCode, msgType)
       }
     }
   }

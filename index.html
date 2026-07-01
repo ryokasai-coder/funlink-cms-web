@@ -859,14 +859,22 @@ async function _loadLineSummaries() {
     if (error) throw error;
     _lmSummary = {};
     if (data) {
+      // data は created_at 降順（新しい順）。各FLは新しい順の部分列になる。
+      // 未対応の定義: スレッドの最後のメッセージが顧客で終わっている状態。
+      //   最新メッセージから遡り、連続する「顧客」メッセージ数を unread として数える。
+      //   我々側（顧客以外＝担当者/FunLink）の返信に当たった時点で _sealed=true にし以降は数えない。
+      //   → 我々が最後に返信していれば unread=0（対応済）、顧客が最後なら unread>0（未対応）。
       data.forEach(function(m) {
         if (!m.case_fl || !m.created_at) return;
         const fl = m.case_fl;
-        if (!_lmSummary[fl]) _lmSummary[fl] = { unread: 0, latestDate: '', hasClam: false };
+        if (!_lmSummary[fl]) _lmSummary[fl] = { unread: 0, latestDate: '', hasClam: false, _sealed: false };
         const s = _lmSummary[fl];
         if (!s.latestDate || m.created_at > s.latestDate) s.latestDate = m.created_at;
-        if (m.status === '未対応' && m.sender === '顧客') s.unread++;
         if (m.status === 'クレーム') s.hasClam = true;
+        if (!s._sealed) {
+          if (m.sender === '顧客') s.unread++;   // 末尾に連続する未返信の顧客メッセージ
+          else s._sealed = true;                 // 我々の返信が最後 → このスレッドは対応済
+        }
       });
     }
   } catch(e) {
@@ -1549,7 +1557,7 @@ modules.dashboard = function() {
     '<div class="card"><div class="card-title">解約リスク — チャーンスコア上位' +
     '<span style="float:right;display:flex;gap:6px">' +
     (localStorage.getItem('funlink_slack_webhook') ? '<button style="font-size:11px;padding:2px 8px;border:1px solid #10b981;border-radius:4px;background:#f0fdf4;cursor:pointer;color:#065f46;font-weight:600" onclick="sendChurnAlertToSlack()"><svg class=ic><use href=#i-megaphone /></svg> Slackへ送信</button>' : '') +
-    '<button style="font-size:11px;padding:2px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;color:#6b7280" onclick="openModal(\'チャーンスコア 算式\',\'<p style=\\"margin-bottom:10px\\">スコアは以下の3要因の合算です：</p><table style=\\"width:100%;border-collapse:collapse;font-size:13px\\"><thead><tr style=\\"background:#f9fafb\\"><th style=\\"padding:8px;border:1px solid #e5e7eb;text-align:left\\">要因</th><th style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">重み</th></tr></thead><tbody><tr><td style=\\"padding:8px;border:1px solid #e5e7eb\\">① 最終接触からの経過日数（MTG・サポート）</td><td style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">× 0.5</td></tr><tr><td style=\\"padding:8px;border:1px solid #e5e7eb\\">② 未解決タスク件数</td><td style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">× 10</td></tr><tr><td style=\\"padding:8px;border:1px solid #e5e7eb\\">③ クチコミ停止月数</td><td style=\\"padding:8px;border:1px solid #e5e7eb;text-align:right\\">× 15</td></tr></tbody></table><div style=\\"margin-top:12px;padding:10px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;color:#92400e\\"><svg class=ic><use href=#i-alerttriangle /></svg> <b>係数は感覚値（未校正）</b><br>実際の解約データと照合し、係数の妥当性を検証することを推奨します。</div>\',\'\')">算式を見る</button>' +
+    '<button style="font-size:11px;padding:2px 8px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;color:#6b7280" onclick="showChurnFormula()">算式を見る</button>' +
     '</span>' +
     '</div>' +
     '<div style="padding:8px 12px;background:#fef9ec;border:1px solid #fde68a;border-radius:6px;margin-bottom:12px;font-size:12px;color:#92400e;display:flex;align-items:center;gap:8px">' +
@@ -3705,7 +3713,9 @@ async function showLineThread(fl) {
     if (msf !== 'all' && m.status !== msf) return false;
     return true;
   });
-  var filteredBubbles = filteredMsgs.map(function(m){
+  var _lastCustIdx = -1;
+  for (var _k = 0; _k < filteredMsgs.length; _k++) { if (filteredMsgs[_k].sender === '顧客') _lastCustIdx = _k; }
+  var _bubbleArr = filteredMsgs.map(function(m){
     var isCust = m.sender==='顧客';
     var bg = catColors[m.category]||'#f3f4f6';
     var nameLabel = isCust && m.sender_name ? escHtml(m.sender_name) : (isCust ? '顧客' : 'FunLink');
@@ -3717,14 +3727,17 @@ async function showLineThread(fl) {
       '<div style="background:'+(isCust?'#fff':'#006dd2')+';color:'+(isCust?'#1f2937':'#fff')+';border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,.1)">'+escHtml(m.message)+'</div>' +
       '<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap;justify-content:'+(isCust?'flex-start':'flex-end')+'">' +
       '<span class="badge" style="background:'+bg+';color:#374151">'+escHtml(m.category||'')+'</span>' +
-      '<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+escHtml(m.status||'')+'</span>' +
+      (isCust?'<span class="badge '+(stCls[m.status]||'badge-gray')+'">'+escHtml(m.status||'')+'</span>':'') +
       (m.reply_draft?'<span class="badge badge-purple" style="cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+escHtml(m.reply_draft).replace(/'/g,"\\'")+'\').then(function(){toast(\'コピーしました\')})"><svg class=ic><use href=#i-clipboard /></svg> 返信案</span>':'')+'</div>' +
       (m.reply_draft?'<div style="margin-top:6px;background:#eff6ff;border-left:3px solid #006dd2;padding:8px 12px;border-radius:4px;font-size:12px;color:#1e40af;white-space:pre-wrap">'+escHtml(m.reply_draft)+'</div>':'') +
       '<div style="margin-top:4px;text-align:right;display:flex;gap:4px;justify-content:flex-end">' +
-      (m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">完了</button>':'') +
+      (isCust&&m.status!=='対応完了'?'<button class="btn btn-sm btn-success" onclick="markLineDone(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">完了</button>':'') +
       '<button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="deleteLineMsg(\''+escHtml(m.id)+'\',\''+escHtml(fl)+'\')">削除</button></div>' +
       '</div></div>';
-  }).join('');
+  });
+  // 返信候補を「相手が最後に送ったメッセージ」の直後に差し込む（無ければ末尾の予備divを使用）
+  if (_lastCustIdx >= 0) _bubbleArr[_lastCustIdx] += '<div id="reply-suggestions"></div>';
+  var filteredBubbles = _bubbleArr.join('');
 
   // P2: ロックバナー
   var lockBanner = lockResult.locked
@@ -4155,7 +4168,7 @@ function getLineTopMatches(displayName, n) {
 async function renderLineIdMapping() {
   document.getElementById('line-body').innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af"><svg class=ic><use href=#i-hourglass /></svg> 読み込み中...</div>';
   var { data: mapped } = await _sb.from('line_user_fl_map').select('*').order('fl_code');
-  var { data: unmapped } = await _sb.from('line_messages').select('case_fl,sender_name').like('case_fl','U%').limit(200);
+  var { data: unmapped } = await _sb.from('line_messages').select('case_fl,sender_name').or('case_fl.like.U%,case_fl.like.C%,case_fl.like.R%').limit(200);
   var unmappedUsers = {};
   (unmapped||[]).forEach(function(r){ if(!unmappedUsers[r.case_fl]) unmappedUsers[r.case_fl] = r.sender_name||''; });
   var mappedIds = (mapped||[]).map(function(r){ return r.line_user_id; });
@@ -9128,6 +9141,21 @@ async function testSlackWebhook() {
   var ok = await sendSlackMessage(url, '*[テスト]* FunLink CMS からの接続テストです <svg class=ic><use href=#i-checkcircle /></svg>');
   btn.disabled = false; btn.textContent = 'テスト送信';
   toast(ok ? 'Slackへのテスト送信が完了しました <svg class=ic><use href=#i-checkcircle /></svg>' : 'Slack送信に失敗しました', !ok);
+}
+
+// チャーンスコアの算式をモーダル表示（onclick内に巨大HTMLを埋め込むとエスケープが壊れるため関数化）
+function showChurnFormula() {
+  var html =
+    '<p style="margin-bottom:10px">スコアは以下の3要因の合算です：</p>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f9fafb">' +
+    '<th style="padding:8px;border:1px solid #e5e7eb;text-align:left">要因</th>' +
+    '<th style="padding:8px;border:1px solid #e5e7eb;text-align:right">重み</th></tr></thead><tbody>' +
+    '<tr><td style="padding:8px;border:1px solid #e5e7eb">① 最終接触からの経過日数（MTG・サポート）</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right">× 0.5</td></tr>' +
+    '<tr><td style="padding:8px;border:1px solid #e5e7eb">② 未解決タスク件数</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right">× 10</td></tr>' +
+    '<tr><td style="padding:8px;border:1px solid #e5e7eb">③ クチコミ停止月数</td><td style="padding:8px;border:1px solid #e5e7eb;text-align:right">× 15</td></tr>' +
+    '</tbody></table>' +
+    '<div style="margin-top:12px;padding:10px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;color:#92400e"><svg class=ic><use href=#i-alerttriangle /></svg> <b>係数は感覚値（未校正）</b><br>実際の解約データと照合し、係数の妥当性を検証することを推奨します。</div>';
+  openModal('チャーンスコア 算式', html, '');
 }
 
 // チャーンスコア上位案件をSlackへ送信（ダッシュボードのボタンから呼び出し）
