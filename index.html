@@ -2505,12 +2505,12 @@ function renderContract(){
         '<div style="display:flex;align-items:center;gap:8px">'+
           '<span class="card-title" style="margin:0"><svg class=ic><use href=#i-barchart /></svg> 年度MRRサマリー</span>'+
           (fd.hasSyncData?
-            '<span style="font-size:11px;color:#059669;font-weight:400"><svg class=ic><use href=#i-checkcircle /></svg> シート同期済み（'+syncedCount+'件・'+syncedAt+'）</span>':
-            '<span style="font-size:11px;color:#f59e0b;font-weight:400"><svg class=ic><use href=#i-alerttriangle /></svg> シート未同期（手入力データを使用中）</span>')+
+            '<span style="font-size:11px;color:#059669;font-weight:400"><svg class=ic><use href=#i-checkcircle /></svg> 契約データ '+fd.storeCount+'店舗で算出（課金開始日基準）</span>':
+            '<span style="font-size:11px;color:#f59e0b;font-weight:400"><svg class=ic><use href=#i-alerttriangle /></svg> 契約ストア未入力 — 「シートデータを取込」または店舗契約フォームから入力してください</span>')+
         '</div>'+
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
           '<select style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:4px" onchange="state.contract.fy=parseInt(this.value);renderContract()">'+fyOpts.join('')+'</select>'+
-          '<button id="sync-fl-contracts-btn" class="btn btn-primary btn-sm" onclick="syncFunlinkContracts()"><svg class=ic><use href=#i-download /></svg> シートから同期</button>'+
+          (syncedCount>0?'<button class="btn btn-primary btn-sm" onclick="migrateFlContractsToStores()"><svg class=ic><use href=#i-download /></svg> シートデータを取込（'+syncedCount+'件）</button>':'')+
           '<button class="btn btn-secondary btn-sm" onclick="exportContractCSV()"><svg class=ic><use href=#i-upload /></svg> CSV出力</button>'+
           '<label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0"><svg class=ic><use href=#i-download /></svg> CSV取込<input type="file" accept=".csv" style="display:none" onchange="importContractCSV(this.files[0]);this.value=\'\'"></label>'+
           '<button class="btn btn-secondary btn-sm" onclick="var b=document.getElementById(\'cfy-body\');b.style.display=b.style.display===\'none\'?\'\':\'none\'">折りたたむ</button>'+
@@ -6381,11 +6381,19 @@ function fiscalYearLabel(fy){return fy+'年度（'+fy+'/7〜'+(fy+1)+'/6）';}
 function getRenewalActions(fl,storeId){var s=getStore();return((s.contracts||{}).renewal_actions||{})[fl+'_'+storeId]||[];}
 
 function buildContractFyData(fy,months){
-  var mrrM={},rtM={},rcM={},caM={},ccM={};
-  var rtCntM={},rcCntM={};
+  // 契約ストア（店舗単位）基準でMRR・更新・解約を算出。シート同期(fl_contracts)/請求CSVには依存しない。
+  // 【集計規約】
+  //  - 課金開始月 = billing_start_date（無ければ contract_start_date）の月。MRRはこの月から発生。
+  //  - MRR(月) = 「課金開始月 ≤ 月 かつ（未解約 or 月 < 解約月）」の店舗の monthly_fee 合計（解約月からは計上しない/規約A）
+  //             ※現在も契約中の店舗は将来月にも計上（＝継続前提の見込みMRR）→ 現在月のMRR＝契約中の月額合計
+  //  - 更新対象月 = 課金開始月 + k×更新期間 − 1ヶ月（k≥1、解約前まで/規約B）
+  //  - 更新確定 = 更新対象のうち、その月が現在月以前かつ解約前（＝実際に更新を越えて継続した）
+  //  - 解約確定(月) = cancellation_date の月
+  //  - 継続率 = 更新確定 ÷ 更新対象
+  //  - 解約申請受領(cancelApplied): 契約ストアに該当ステータスが無いため常に0（必要なら専用フィールドで対応）
+  var mrrM={},rtM={},rcM={},caM={},ccM={},rtCntM={},rcCntM={};
   months.forEach(function(m){mrrM[m]=0;rtM[m]=0;rcM[m]=0;caM[m]=0;ccM[m]=0;rtCntM[m]=0;rcCntM[m]=0;});
-
-  // 日付文字列（YYYY-MM-DD / YYYY/MM/DD / YYYY-MM / YYYY/MM）→ 'YYYY/MM'
+  // 日付文字列 → 'YYYY/MM'
   function toYM(d){
     if(!d) return '';
     var s=String(d).trim().replace(/\//g,'-');
@@ -6393,132 +6401,49 @@ function buildContractFyData(fy,months){
     if(!m) return '';
     return m[1]+'/'+(m[2].length===1?'0':'')+m[2];
   }
-  // 'YYYY/MM' の前月を返す
-  function prevYM(ym){
-    var y=parseInt(ym.slice(0,4)),mo=parseInt(ym.slice(5,7));
-    mo--; if(mo<1){mo=12;y--;}
-    return y+'/'+(mo<10?'0':'')+mo;
+  // 'YYYY/MM' に n ヶ月加算
+  function ymAdd(ym,n){
+    var y=parseInt(ym.slice(0,4),10), mo=parseInt(ym.slice(5,7),10)-1+n;
+    y+=Math.floor(mo/12); mo=((mo%12)+12)%12;
+    return y+'/'+((mo+1)<10?'0':'')+(mo+1);
   }
-
-  // 請求データからMRR集計（インメモリデデュップ）
-  var bd=getBillingData();
-  var invs=bd.invoices||[];
-  var sp2={'完了':0,'未収':1,'未処理':2};
-  var imap={};
-  invs.forEach(function(x){if(!x.inv)return;if(!imap[x.inv]||(sp2[x.status]||3)<(sp2[imap[x.inv].status]||3))imap[x.inv]=x;});
-  invs=Object.values?Object.values(imap):Object.keys(imap).map(function(k){return imap[k];});
-  // 売上計上日（col28 = sales_month）を課金月として使用
-  var sYm=function(x){return x.sales_month||toYM(x.period_start);};
-  invs.forEach(function(x){
-    var ym=sYm(x);
-    if(ym&&mrrM.hasOwnProperty(ym)&&isRecurring(x))mrrM[ym]+=x.amount;
-  });
-
-  // funlinkシート同期データから更新対象・継続確定・解約集計
-  var s=getStore();
-  var flc=(s.contracts||{}).fl_contracts||{};
-  var hasSyncData=Object.keys(flc).length>0;
-
-  if(hasSyncData){
-    Object.keys(flc).forEach(function(fl){
-      var d=flc[fl];
-      var fee=d.monthly_fee||0;
-      if(!fee)return;
-      var prog=d.progress_status||'';
-      var renewDates=d.renewal_dates||[];
-      var renewCount=d.renewal_count||0;
-
-      if(renewDates.length){
-        // renewal_datesを使って各更新期の「最終課金月」を正確に再構築
-        // → 更新済み期は自動的に継続確定扱いにできる
-        var foundCurrent=false;
-        renewDates.forEach(function(rd,i){
-          var rdYm=toYM(rd);
-          if(!rdYm) return;
-          var lbYm=prevYM(rdYm); // 更新月の前月 = 最終課金月
-          if(!rtM.hasOwnProperty(lbYm)) return;
-          rtM[lbYm]+=fee;
-          rtCntM[lbYm]++;
-          if(i<renewCount){
-            // この更新は完了済み（実際に継続した）
-            rcM[lbYm]+=fee;
-            rcCntM[lbYm]++;
-          } else if(i===renewCount){
-            foundCurrent=true;
-            // 現在の更新対象（progress_statusで判定）
-            if(prog==='継続OK'){rcM[lbYm]+=fee;rcCntM[lbYm]++;}
-            if(prog==='継続NG') caM[lbYm]+=fee;
-          }
-        });
-        // renewCount >= renewal_dates.length の場合（シートに次回日程未記入等）
-        // → last_billing_dateにフォールバックして現在の更新対象を補完
-        if(!foundCurrent){
-          var lbYm2=toYM(d.last_billing_date);
-          if(lbYm2&&rtM.hasOwnProperty(lbYm2)){
-            rtM[lbYm2]+=fee;
-            rtCntM[lbYm2]++;
-            if(prog==='継続OK'){rcM[lbYm2]+=fee;rcCntM[lbYm2]++;}
-            if(prog==='継続NG') caM[lbYm2]+=fee;
-          }
+  var now=new Date();
+  var nowYm=now.getFullYear()+'/'+((now.getMonth()+1)<10?'0':'')+(now.getMonth()+1);
+  var firstYm=months[0], lastYm=months[months.length-1];
+  var storeCount=0;
+  MASTER_CASES.forEach(function(c){
+    (getCStores(c.fl)||[]).forEach(function(st){
+      var fee=parseFloat(st.monthly_fee)||0;
+      var startYm=toYM(st.billing_start_date||st.contract_start_date); // 課金開始日を起点
+      if(!fee||!startYm) return;
+      storeCount++;
+      var cancelYm=toYM(st.cancellation_date);
+      var period=parseInt(st.renewal_period_months,10)||0;
+      // MRR: 課金開始月～解約月の前月まで在籍
+      months.forEach(function(ym){
+        if(ym<startYm) return;
+        if(cancelYm && ym>=cancelYm) return; // 解約月からは計上しない
+        mrrM[ym]+=fee;
+      });
+      // 解約確定MRR: 解約日の月
+      if(cancelYm && ccM.hasOwnProperty(cancelYm)) ccM[cancelYm]+=fee;
+      // 更新対象/更新確定: 更新境界月 = 課金開始月 + k×更新期間 − 1ヶ月
+      if(period>0){
+        var maxK=Math.floor(240/period)+2; // 上限ガード（最長20年分）
+        for(var k=1;k<=maxK;k++){
+          var bYm=ymAdd(startYm,k*period-1);
+          if(cancelYm && bYm>=cancelYm) break; // 解約後は更新境界を迎えない
+          if(bYm>lastYm) break;
+          if(bYm<firstYm) continue;
+          rtM[bYm]+=fee; rtCntM[bYm]++;
+          if(bYm<=nowYm){ rcM[bYm]+=fee; rcCntM[bYm]++; } // 現在月以前＝継続確定
         }
-      } else {
-        // renewal_dates未設定のフォールバック: last_billing_dateベース
-        var lbYm=toYM(d.last_billing_date);
-        if(!lbYm||!rtM.hasOwnProperty(lbYm)) return;
-        rtM[lbYm]+=fee;
-        rtCntM[lbYm]++;
-        if(prog==='継続OK'){rcM[lbYm]+=fee;rcCntM[lbYm]++;}
-        if(prog==='継続NG') caM[lbYm]+=fee;
       }
     });
-
-    // 解約確定MRR: 店舗のcancellation_dateベース（実際の解約確定日で月別集計）
-    MASTER_CASES.forEach(function(c){
-      var cstores=getCStores(c.fl)||[];
-      cstores.forEach(function(st){
-        if(!st.cancellation_date) return;
-        var cdYm=toYM(st.cancellation_date);
-        if(!cdYm||!ccM.hasOwnProperty(cdYm)) return;
-        ccM[cdYm]+=(st.monthly_fee||0);
-      });
-    });
-    // フォールバック: cancellation_date未入力のFLは contract_status='解約'+last_billing_date
-    Object.keys(flc).forEach(function(fl){
-      var d=flc[fl];
-      var fee=d.monthly_fee||0;
-      if(!fee) return;
-      var isCancelled=(d.contract_status==='解約'||d.billing_status==='解約');
-      if(!isCancelled) return;
-      var hasStoreCd=(getCStores(fl)||[]).some(function(st){return !!st.cancellation_date;});
-      if(hasStoreCd) return; // store側で計上済み
-      var lbYm=toYM(d.last_billing_date);
-      if(!lbYm||!ccM.hasOwnProperty(lbYm)) return;
-      ccM[lbYm]+=fee;
-    });
-  } else {
-    // シート未同期時は手入力の店舗データ（first_contract_end_date）にフォールバック
-    var racts=(s.contracts||{}).renewal_actions||{};
-    MASTER_CASES.forEach(function(c){
-      var stores=getCStores(c.fl)||[];
-      stores.forEach(function(st){
-        if(!st.first_contract_end_date)return;
-        var endYm=toYM(st.first_contract_end_date);
-        if(!rtM.hasOwnProperty(endYm))return;
-        var fee=st.monthly_fee||0;
-        rtM[endYm]+=fee;
-        rtCntM[endYm]++;
-        var key=c.fl+'_'+st.store_id;
-        var acts=(racts[key]||[]).filter(function(a){return a.fiscal_year===fy;});
-        var latestSt=acts.length?acts[acts.length-1].status:'';
-        if(latestSt==='更新確定'){rcM[endYm]+=fee;rcCntM[endYm]++;}
-        else if(latestSt==='解約申請受付')caM[endYm]+=fee;
-        else if(latestSt==='解約確定')ccM[endYm]+=fee;
-      });
-    });
-  }
-
+  });
   return {
-    hasSyncData:hasSyncData,
+    hasSyncData: storeCount>0,
+    storeCount: storeCount,
     mrr:months.map(function(m){return mrrM[m];}),
     renewalTarget:months.map(function(m){return rtM[m];}),
     renewalConfirmed:months.map(function(m){return rcM[m];}),
@@ -6527,6 +6452,44 @@ function buildContractFyData(fy,months){
     cancelApplied:months.map(function(m){return caM[m];}),
     cancelConfirmed:months.map(function(m){return ccM[m];})
   };
+}
+
+// シート同期データ(fl_contracts)を契約ストアへ一度きり取込（データ移行）
+function migrateFlContractsToStores(){
+  var s=getStore();
+  if(!s.contracts) s.contracts={};
+  if(!s.contracts.stores) s.contracts.stores={};
+  var flc=s.contracts.fl_contracts||{};
+  var keys=Object.keys(flc);
+  if(!keys.length){ toast('取込元のシート同期データ(fl_contracts)がありません', true); return; }
+  if(!confirm('シート同期データ '+keys.length+'件を契約ストアへ取込みます。\n各FLに店舗レコードを作成/更新します（再実行しても重複しません）。よろしいですか？')) return;
+  var created=0, updated=0;
+  keys.forEach(function(fl){
+    var d=flc[fl]; if(!d) return;
+    var fee=parseFloat(d.monthly_fee)||0;
+    var mc=MASTER_CASES.find(function(x){return x.fl===fl;});
+    var arr=s.contracts.stores[fl]||[];
+    var st=arr.find(function(x){return x._origin==='sheet';}); // 既存の取込レコードを更新
+    var isCancelled=(d.contract_status==='解約'||d.billing_status==='解約');
+    var rec={
+      store_id: st?st.store_id:uid(),
+      store_name: (mc?mc.name:fl),
+      monthly_fee: fee,
+      billing_start_date: d.billing_start_date||'',
+      contract_start_date: d.billing_start_date||'',
+      renewal_period_months: d.renewal_period_months||null,
+      status: isCancelled?'cancelled':'active',
+      cancellation_date: isCancelled?(d.last_billing_date||''):'',
+      plan_type: st?st.plan_type:'',
+      _origin: 'sheet',
+      updated_at: today()
+    };
+    if(st){ Object.assign(st, rec); updated++; } else { arr.push(rec); created++; }
+    s.contracts.stores[fl]=arr;
+  });
+  saveStore(s);
+  toast('契約ストアへ取込完了: 新規'+created+'件 / 更新'+updated+'件');
+  if(state.current==='contract') renderContract();
 }
 
 // BILLING DATA INFRASTRUCTURE
