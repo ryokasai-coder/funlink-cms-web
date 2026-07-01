@@ -3628,7 +3628,7 @@ async function renderLineMessages() {
     var c = item.c;
     var badge = item.hasClam
       ? '<span class="badge badge-red">クレーム</span>'
-      : item.unread ? '<span class="badge badge-red">未対応 '+item.unread+'</span>'
+      : item.unread ? '<span class="badge badge-red">未対応</span>'
       : item.hasMsgs ? '<span class="badge badge-green">対応済</span>' : '';
     var unpaidBadge = item.unpaid>0 ? '<span class="badge" style="background:#fef3c7;color:#92400e">未収 ¥'+Math.round(item.unpaid).toLocaleString()+'</span>' : '';
     return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(\''+escHtml(c.fl)+'\')">' +
