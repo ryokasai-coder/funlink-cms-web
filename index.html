@@ -3594,9 +3594,15 @@ async function renderLineMessages() {
   _subscribeLineRealtime();
   document.getElementById('line-body').innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af"><svg class=ic><use href=#i-hourglass /></svg> 読み込み中...</div>';
   const summary = await _loadLineSummaries();
+  // 未収案件マップ（請求CSVの status が 未収/未処理 の請求金額をFL別に合計）
+  var _bd = getBillingData();
+  var unpaidByFl = {};
+  (_bd.invoices||[]).forEach(function(x){
+    if (x.fl && (x.status==='未収'||x.status==='未処理')) unpaidByFl[x.fl] = (unpaidByFl[x.fl]||0) + (x.amount||0);
+  });
   var casesWithLatest = MASTER_CASES.map(function(c){
     var info = summary[c.fl] || { unread: 0, latestDate: '', hasClam: false };
-    return { c: c, latestDate: info.latestDate, unread: info.unread, hasClam: info.hasClam, hasMsgs: !!info.latestDate };
+    return { c: c, latestDate: info.latestDate, unread: info.unread, hasClam: info.hasClam, hasMsgs: !!info.latestDate, unpaid: unpaidByFl[c.fl]||0 };
   });
   casesWithLatest.sort(function(a,b){
     if (a.latestDate && !b.latestDate) return -1;
@@ -3607,6 +3613,7 @@ async function renderLineMessages() {
   // 件数カウント
   var totalUnread = casesWithLatest.filter(function(x){ return x.unread > 0 && !x.hasClam; }).length;
   var totalClam = casesWithLatest.filter(function(x){ return x.hasClam; }).length;
+  var totalUnpaid = casesWithLatest.filter(function(x){ return x.unpaid > 0; }).length;
   // P1: ナビバッジ更新（未対応＋クレームの合計）
   updateLineNavBadge(totalUnread + totalClam);
 
@@ -3615,6 +3622,7 @@ async function renderLineMessages() {
   var filtered = casesWithLatest;
   if (lf === 'unread') filtered = casesWithLatest.filter(function(x){ return x.unread > 0 && !x.hasClam; });
   else if (lf === 'clam') filtered = casesWithLatest.filter(function(x){ return x.hasClam; });
+  else if (lf === 'unpaid') filtered = casesWithLatest.filter(function(x){ return x.unpaid > 0; });
 
   var leftItems = filtered.map(function(item){
     var c = item.c;
@@ -3622,10 +3630,11 @@ async function renderLineMessages() {
       ? '<span class="badge badge-red">クレーム</span>'
       : item.unread ? '<span class="badge badge-red">未対応 '+item.unread+'</span>'
       : item.hasMsgs ? '<span class="badge badge-green">対応済</span>' : '';
+    var unpaidBadge = item.unpaid>0 ? '<span class="badge" style="background:#fef3c7;color:#92400e">未収 ¥'+Math.round(item.unpaid).toLocaleString()+'</span>' : '';
     return '<div class="case-item '+(state.line.selectedFL===c.fl?'active':'')+'" onclick="showLineThread(\''+escHtml(c.fl)+'\')">' +
       '<div class="fl">'+escHtml(c.fl)+(item.latestDate?' <span style="font-size:10px;color:#9ca3af">'+item.latestDate.slice(0,10)+'</span>':'')+
       '</div><div class="name">'+escHtml(c.name)+'</div>' +
-      '<div style="margin-top:3px">'+statusBadge(c.status)+' '+badge+'</div></div>';
+      '<div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">'+statusBadge(c.status)+badge+unpaidBadge+'</div></div>';
   }).join('');
 
   var filterBar =
@@ -3633,6 +3642,7 @@ async function renderLineMessages() {
     '<button class="btn btn-sm '+(lf==='all'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'all\';renderLineMessages()">全て</button>' +
     '<button class="btn btn-sm '+(lf==='unread'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'unread\';renderLineMessages()">未対応 <span style="background:'+(lf==='unread'?'rgba(255,255,255,.3)':'#fee2e2')+';color:'+(lf==='unread'?'#fff':'#991b1b')+';border-radius:8px;padding:0 5px">'+totalUnread+'</span></button>' +
     '<button class="btn btn-sm '+(lf==='clam'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'clam\';renderLineMessages()">クレーム <span style="background:'+(lf==='clam'?'rgba(255,255,255,.3)':'#fee2e2')+';color:'+(lf==='clam'?'#fff':'#991b1b')+';border-radius:8px;padding:0 5px">'+totalClam+'</span></button>' +
+    '<button class="btn btn-sm '+(lf==='unpaid'?'btn-primary':'btn-secondary')+'" style="font-size:11px;padding:3px 8px" onclick="state.line.listFilter=\'unpaid\';renderLineMessages()">未収 <span style="background:'+(lf==='unpaid'?'rgba(255,255,255,.3)':'#fef3c7')+';color:'+(lf==='unpaid'?'#fff':'#92400e')+';border-radius:8px;padding:0 5px">'+totalUnpaid+'</span></button>' +
     '<button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="showLineCsvImport()"><svg class=ic><use href=#i-download /></svg> CSV取込</button>' +
     '</div>';
 
@@ -3645,7 +3655,7 @@ async function renderLineMessages() {
     '<div id="line-case-list" style="flex:1;overflow-y:auto">' +
     (leftItems || '<div style="text-align:center;padding:32px 16px;color:#9ca3af;font-size:13px">該当なし</div>') +
     '</div></div>' +
-    '<div id="line-thread" style="flex:1;overflow-y:auto;padding:20px;background:#f9fafb">' +
+    '<div id="line-thread" style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:#f9fafb">' +
     '<div style="color:#9ca3af;text-align:center;margin-top:80px">左から案件を選択してください</div></div></div>';
   if (state.line.selectedFL) showLineThread(state.line.selectedFL);
 }
@@ -3746,12 +3756,18 @@ async function showLineThread(fl) {
       '<div><b style="color:#92400e">'+escHtml(lockResult.by)+'</b> が現在このスレッドを確認中です（'+lockResult.at.slice(11,16)+'〜）。重複対応に注意してください。</div></div>'
     : '';
 
+  // この案件の未収額（請求CSVの未収/未処理の合計）
+  var _bd = getBillingData();
+  var unpaidAmt = 0;
+  (_bd.invoices||[]).forEach(function(x){ if (x.fl===fl && (x.status==='未収'||x.status==='未処理')) unpaidAmt += (x.amount||0); });
+
   threadEl.innerHTML =
+    '<div id="line-thread-scroll" style="flex:1;overflow-y:auto;padding:20px;min-height:0">' +
     lockBanner +
     // ヘッダー
     '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:12px 18px;margin-bottom:12px">' +
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
-    '<div><div style="font-size:18px;font-weight:700;color:#006dd2">'+escHtml(fl)+'</div><div style="font-size:14px;font-weight:600">'+escHtml(c.name)+'</div></div>' +
+    '<div><div style="font-size:18px;font-weight:700;color:#006dd2">'+escHtml(fl)+(unpaidAmt>0?' <span class="badge" style="background:#fef3c7;color:#92400e;font-size:12px;vertical-align:middle">未収 ¥'+Math.round(unpaidAmt).toLocaleString()+'</span>':'')+'</div><div style="font-size:14px;font-weight:600">'+escHtml(c.name)+'</div></div>' +
     '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
     (meoUrl?'<a href="'+meoUrl+'" target="_blank" class="btn btn-sm btn-secondary"><svg class=ic><use href=#i-link /></svg> meo-dash</a>':'')+
     '<button class="btn btn-sm" style="background:#059669;color:#fff" onclick="generateGeminiReply(\''+escHtml(fl)+'\')"><svg class=ic><use href=#i-sparkles /></svg> AI返信生成</button>' +
@@ -3767,36 +3783,52 @@ async function showLineThread(fl) {
     // メッセージ一覧
     (filteredBubbles||'<div style="text-align:center;color:#9ca3af;padding:40px 0">'+
     (msgs.length?'フィルタ条件に一致するメッセージがありません':'メッセージがありません')+'</div>') +
-    '<div id="reply-suggestions"></div>' +
-    // メッセージ追加フォーム
-    '<div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;padding:16px;margin-top:16px">' +
-    '<div style="font-size:13px;font-weight:700;margin-bottom:12px"><svg class=ic><use href=#i-edit /></svg> メッセージを追加</div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
-    '<div><label>日付</label><input type="date" id="lm_date" value="'+today()+'"></div>' +
-    '<div><label>カテゴリ</label><select id="lm_cat"><option>管理画面</option><option>写真</option><option>クチコミ</option><option>解約</option><option>請求</option><option>LINE</option><option>その他</option></select></div></div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
-    '<div><label>送信者</label>' +
-    '<select id="lm_sender" onchange="toggleSenderName(this.value)">' +
-    '<option value="顧客">顧客</option><option value="FunLink">FunLink</option></select></div>' +
-    '<div id="lm_sender_name_wrap"><label>送信者名（顧客）</label><input type="text" id="lm_sender_name" placeholder="山田 太郎"></div></div>' +
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
-    '<div><label>ステータス</label><select id="lm_status"><option>未対応</option><option>対応中</option><option>対応完了</option><option>クレーム</option></select></div>' +
-    '<div><label>担当者</label><select id="lm_assignee">'+staffOpts+'</select></div></div>' +
-    '<div class="form-group"><label>メッセージ内容 <span style="color:#ef4444">*</span></label><textarea id="lm_msg" placeholder="問い合わせ内容..."></textarea></div>' +
-    '<div class="form-group"><label>返信案（任意）</label><textarea id="lm_reply" style="min-height:60px" placeholder="送付予定の返信文を入力..."></textarea></div>' +
-    '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-    '<button class="btn btn-secondary" onclick="showLineTemplateModal()" style="font-size:12px"><svg class=ic><use href=#i-clipboard /></svg> テンプレート</button>' +
-    '<div style="display:flex;gap:8px">' +
-    '<button class="btn btn-secondary" onclick="generateGeminiReply(\''+escHtml(fl)+'\')"><svg class=ic><use href=#i-sparkles /></svg> AI返信生成</button>' +
-    '<button class="btn btn-primary" onclick="saveLineMsg(\''+escHtml(fl)+'\')">追加</button></div></div></div>';
-  // スレッド末尾にスクロール
-  threadEl.scrollTop = threadEl.scrollHeight;
+    // 返信候補（相手の最後のメッセージ直後に差し込めなかった場合の予備）
+    (_lastCustIdx < 0 ? '<div id="reply-suggestions"></div>' : '') +
+    '</div>' +
+    // 下部固定の返信入力欄（DB記録のみ・FunLink返信として保存）
+    '<div id="line-compose" style="border-top:1px solid #e5e7eb;background:#fff;padding:10px 14px;flex-shrink:0">' +
+    '<div style="display:flex;gap:8px;align-items:flex-end">' +
+    '<textarea id="lm_msg" placeholder="返信を入力...（Enterで記録／Shift+Enterで改行）" style="flex:1;min-height:42px;max-height:120px;resize:none;font-size:13px;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px" onkeydown="lineComposeKey(event,\''+escHtml(fl)+'\')"></textarea>' +
+    '<button class="btn btn-primary" style="white-space:nowrap;height:42px" onclick="saveLineReply(\''+escHtml(fl)+'\')">記録</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">' +
+    '<select id="lm_cat" style="font-size:12px;padding:2px 6px;border:1px solid #d1d5db;border-radius:6px"><option>その他</option><option>管理画面</option><option>写真</option><option>クチコミ</option><option>解約</option><option>請求</option><option>LINE</option></select>' +
+    '<select id="lm_assignee" style="font-size:12px;padding:2px 6px;border:1px solid #d1d5db;border-radius:6px">'+staffOpts+'</select>' +
+    '<button class="btn btn-sm btn-secondary" style="font-size:11px" onclick="showLineTemplateModal()"><svg class=ic><use href=#i-clipboard /></svg> テンプレ</button>' +
+    '<button class="btn btn-sm" style="font-size:11px;background:#059669;color:#fff" onclick="generateGeminiReply(\''+escHtml(fl)+'\')"><svg class=ic><use href=#i-sparkles /></svg> AI生成</button>' +
+    '<span style="font-size:11px;color:#9ca3af;margin-left:auto">記録するとFunLink返信＝自動で対応済になります</span>' +
+    '</div></div>';
+  // スクロール領域を末尾へ
+  var _sc = document.getElementById('line-thread-scroll');
+  if (_sc) _sc.scrollTop = _sc.scrollHeight;
   // 最新の顧客メッセージに対して返信候補を表示
   var lastCust = null;
   for (var i = msgs.length-1; i >= 0; i--) {
     if (msgs[i].sender === '顧客') { lastCust = msgs[i]; break; }
   }
   if (lastCust) showReplySuggestions(lastCust.message, fl);
+}
+
+// 下部固定入力欄からの返信記録（FunLink返信としてDBに保存＝自動で対応済になる）
+async function saveLineReply(fl) {
+  var el = document.getElementById('lm_msg');
+  var msg = el ? el.value : '';
+  if (!msg.trim()) { toast('返信内容を入力してください', true); return; }
+  var now = new Date().toISOString();
+  await _sb.from('line_messages').insert({
+    id: uid(), case_fl: fl, date: today(), sender: 'FunLink', sender_name: 'FunLink',
+    assignee: (document.getElementById('lm_assignee')||{}).value || '',
+    category: (document.getElementById('lm_cat')||{}).value || 'その他',
+    message: msg, reply_draft: '', status: '対応完了', created_at: now
+  });
+  _invalidateLmCache(fl);
+  showLineThread(fl);
+  toast('返信を記録しました（対応済）');
+}
+// 入力欄: Enterで記録・Shift+Enterで改行
+function lineComposeKey(e, fl) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveLineReply(fl); }
 }
 
 function toggleSenderName(val) {
@@ -8680,7 +8712,7 @@ function showGeminiResult(reply, fl) {
     '<div style="font-size:12px;color:#6b7280">生成されました。そのまま使用するか、内容を確認して返信欄に入力してください。</div>',
     '<button class="btn btn-secondary" onclick="closeModal()">閉じる</button>' +
     '<button class="btn btn-primary" onclick="navigator.clipboard&&navigator.clipboard.writeText(\'' + safeReply + '\').then(function(){toast(\'コピーしました\');closeModal()})"><svg class=ic><use href=#i-clipboard /></svg> コピー</button>' +
-    '<button class="btn btn-success" onclick="var t=document.getElementById(\'lm_reply\');if(t){t.value=\'' + safeReply + '\';closeModal();toast(\'返信欄に入力しました\')}"><svg class=ic><use href=#i-edit /></svg> 返信欄に入力</button>'
+    '<button class="btn btn-success" onclick="var t=document.getElementById(\'lm_msg\');if(t){t.value=\'' + safeReply + '\';t.focus();closeModal();toast(\'返信欄に入力しました\')}"><svg class=ic><use href=#i-edit /></svg> 返信欄に入力</button>'
   );
 }
 
@@ -8790,10 +8822,8 @@ function copyReply(idx, fl) {
 function fillReply(idx, fl) {
   var replies = state.line && state.line.suggestions && state.line.suggestions[fl];
   if (!replies || !replies[idx]) return;
-  var el = document.getElementById('lm_reply');
-  if (el) { el.value = replies[idx]; el.scrollIntoView({behavior:'smooth'}); }
-  var senderEl = document.getElementById('lm_sender');
-  if (senderEl) senderEl.value = 'FunLink';
+  var el = document.getElementById('lm_msg');
+  if (el) { el.value = replies[idx]; el.focus(); el.scrollIntoView({behavior:'smooth'}); }
   toast('返信欄に入力しました');
 }
 
