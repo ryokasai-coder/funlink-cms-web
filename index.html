@@ -6403,7 +6403,7 @@ function buildContractFyData(fy,months){
   //  - MRR(月) = 「課金開始月 ≤ 月 かつ（未解約 or 月 < 解約月）」の店舗の monthly_fee 合計（解約月からは計上しない/規約A）
   //             ※現在も契約中の店舗は将来月にも計上（＝継続前提の見込みMRR）→ 現在月のMRR＝契約中の月額合計
   //  - 更新対象月 = 課金開始月 + k×更新期間 − 1ヶ月（k≥1、解約前まで/規約B）
-  //  - 更新確定 = 更新対象のうち、その月が現在月以前かつ解約前（＝実際に更新を越えて継続した）
+  //  - 更新確定 = 更新対象MRR − 解約確定MRR（その月に更新を迎えたMRRのうち解約されなかった分。負値は0クランプ）
   //  - 解約確定(月) = cancellation_date の月
   //  - 継続率 = 更新確定 ÷ 更新対象
   //  - 解約申請受領(cancelApplied) = cancellation_applied_date の月の monthly_fee 合計（解約確定に先行する見込み指標）
@@ -6465,7 +6465,8 @@ function buildContractFyData(fy,months){
     storeCount: storeCount,
     mrr:months.map(function(m){return mrrM[m];}),
     renewalTarget:months.map(function(m){return rtM[m];}),
-    renewalConfirmed:months.map(function(m){return rcM[m];}),
+    // 更新確定MRR = 更新対象MRR − 解約確定MRR（その月に更新を迎えたMRRのうち解約されなかった分。負値は0クランプ）
+    renewalConfirmed:months.map(function(m){return Math.max(0, rtM[m]-ccM[m]);}),
     renewalTargetCount:months.map(function(m){return rtCntM[m];}),
     renewalConfirmedCount:months.map(function(m){return rcCntM[m];}),
     cancelApplied:months.map(function(m){return caM[m];}),
