@@ -2576,19 +2576,19 @@ function renderContract(){
       data:{
         labels:shortLabels,
         datasets:[
-          {label:'MRR',data:fd.mrr.map(function(v){return Math.round(v/10000);}),backgroundColor:'rgba(99,102,241,0.45)',borderColor:'rgba(99,102,241,0.8)',borderWidth:1,borderRadius:2,order:2},
-          {label:'更新対象MRR',data:fd.renewalTarget.map(function(v){return Math.round(v/10000);}),backgroundColor:'rgba(217,119,6,0.45)',borderColor:'rgba(217,119,6,0.8)',borderWidth:1,borderRadius:2,order:3},
-          {label:'更新確定MRR',data:fd.renewalConfirmed.map(function(v){return Math.round(v/10000);}),backgroundColor:'rgba(5,150,105,0.6)',borderColor:'rgba(5,150,105,0.9)',borderWidth:1,borderRadius:2,order:4}
+          {label:'MRR',data:fd.mrr,backgroundColor:'rgba(99,102,241,0.45)',borderColor:'rgba(99,102,241,0.8)',borderWidth:1,borderRadius:2,order:2},
+          {label:'更新対象MRR',data:fd.renewalTarget,backgroundColor:'rgba(217,119,6,0.45)',borderColor:'rgba(217,119,6,0.8)',borderWidth:1,borderRadius:2,order:3},
+          {label:'更新確定MRR',data:fd.renewalConfirmed,backgroundColor:'rgba(5,150,105,0.6)',borderColor:'rgba(5,150,105,0.9)',borderWidth:1,borderRadius:2,order:4}
         ]
       },
       options:{
         responsive:true,maintainAspectRatio:true,
         plugins:{
           legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12,padding:10}},
-          tooltip:{callbacks:{label:function(c){return c.dataset.label+': ¥'+(c.raw*10000).toLocaleString()+'（'+c.raw+'万）';}}}
+          tooltip:{callbacks:{label:function(c){return c.dataset.label+': ¥'+Math.round(c.raw).toLocaleString()+'（'+Math.round(c.raw/10000)+'万）';}}}
         },
         scales:{
-          y:{ticks:{callback:function(v){return v+'万';},font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
+          y:{ticks:{callback:function(v){return Math.round(v/10000)+'万';},font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
           x:{ticks:{font:{size:10}},grid:{display:false}}
         }
       }
