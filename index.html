@@ -512,7 +512,13 @@ async function initApp() {
     // 初回ログイン判定
     var loginCount = parseInt(localStorage.getItem('funlink_login_count') || '0') + 1;
     localStorage.setItem('funlink_login_count', loginCount);
-    loadModule('dashboard');
+    // ブラウザ更新時は直前に開いていたモジュールを復元（未保存/権限なし/不明はダッシュボード）
+    var startMod = 'dashboard';
+    try { startMod = localStorage.getItem('funlink_last_module') || 'dashboard'; } catch(e){}
+    if (!MODULE_TITLES[startMod] || !canAccessModule(startMod)) startMod = 'dashboard';
+    document.querySelectorAll('.nav-item').forEach(function(x){ x.classList.remove('active'); if(x.dataset.module===startMod) x.classList.add('active'); });
+    currentModule = startMod;
+    loadModule(startMod);
     if (loginCount === 1) setTimeout(showOnboarding, 800);
     setTimeout(checkOverdueNotification, 2000);
   } catch(e) {
@@ -1305,6 +1311,8 @@ function loadModule(mod) {
       '</div>';
     return;
   }
+  // 直前モジュールを記憶（ブラウザ更新時に復元）
+  try { localStorage.setItem('funlink_last_module', mod); } catch(e){}
   if (modules[mod]) modules[mod]();
 }
 
