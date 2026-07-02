@@ -6453,19 +6453,10 @@ function buildContractFyData(fy,months){
       if(cancelYm && ccM.hasOwnProperty(cancelYm)) ccM[cancelYm]+=fee;
       // 解約申請受領MRR: 申請受領日の月（解約確定に先行する見込み）
       if(cancelAppliedYm && caM.hasOwnProperty(cancelAppliedYm)) caM[cancelAppliedYm]+=fee;
-      // 更新対象/更新確定: 更新境界月 = 課金開始月 + k×更新期間 − 1ヶ月
-      if(period>0){
-        var maxK=Math.floor(240/period)+2; // 上限ガード（最長20年分）
-        for(var k=1;k<=maxK;k++){
-          var bYm=ymAdd(startYm,k*period-1);
-          if(cancelYm && bYm>=cancelYm) break; // 解約後は更新境界を迎えない
-          if(bYm>lastYm) break;
-          if(bYm<prevYm) continue; // 前月分も算出（前月比用）
-          if(rtM[bYm]===undefined) rtM[bYm]=0; if(rtCntM[bYm]===undefined) rtCntM[bYm]=0;
-          rtM[bYm]+=fee; rtCntM[bYm]++;
-          if(bYm<=nowYm){ rcM[bYm]+=fee; rcCntM[bYm]++; } // 現在月以前＝継続確定
-        }
-      }
+      // 更新対象MRR: 最終課金月(last_billing_date)にその契約の月額を計上（＝その月に更新判断を迎えるMRR）
+      // 解約する契約は last_billing_date=cancellation_date のため必ず更新対象に含まれる → 更新対象 ≥ 解約確定 が成立
+      var lbYm=toYM(st.last_billing_date);
+      if(lbYm && rtM.hasOwnProperty(lbYm)){ rtM[lbYm]+=fee; rtCntM[lbYm]++; }
     });
   });
   return {
@@ -6509,6 +6500,7 @@ function migrateFlContractsToStores(){
       billing_start_date: d.billing_start_date||'',
       contract_start_date: d.billing_start_date||'',
       renewal_period_months: d.renewal_period_months||null,
+      last_billing_date: d.last_billing_date||'', // 最終課金日（更新対象MRRの計上月）
       status: isCancelled?'cancelled':'active',
       cancellation_date: isCancelled?(d.last_billing_date||''):'',
       plan_type: st?st.plan_type:'',
