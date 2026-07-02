@@ -6413,7 +6413,7 @@ function buildContractFyData(fy,months){
   // 契約ストア（店舗単位）基準でMRR・更新・解約を算出。シート同期(fl_contracts)/請求CSVには依存しない。
   // 【集計規約】
   //  - 課金開始月 = billing_start_date（無ければ contract_start_date）の月。MRRはこの月から発生。
-  //  - MRR(月) = 「課金開始月 ≤ 月 かつ（未解約 or 月 < 解約月）」の店舗の monthly_fee 合計（解約月からは計上しない/規約A）
+  //  - MRR(月) = 「課金開始月 ≤ 月 かつ（未解約 or 月 ≤ 解約月）」の店舗の monthly_fee 合計（解約月＝最終課金月は当月末まで稼働のため計上、翌月から除外）
   //             ※現在も契約中の店舗は将来月にも計上（＝継続前提の見込みMRR）→ 現在月のMRR＝契約中の月額合計
   //  - 更新対象月 = 課金開始月 + k×更新期間 − 1ヶ月（k≥1、解約前まで/規約B）
   //  - 更新確定 = 更新対象MRR − 解約確定MRR（その月に更新を迎えたMRRのうち解約されなかった分。負値は0クランプ）
@@ -6451,10 +6451,10 @@ function buildContractFyData(fy,months){
       var cancelYm=toYM(st.cancellation_date);
       var cancelAppliedYm=toYM(st.cancellation_applied_date);
       var period=parseInt(st.renewal_period_months,10)||0;
-      // MRR: 課金開始月～解約月の前月まで在籍
+      // MRR: 課金開始月～解約月（最終課金月）まで在籍。解約月は最終課金日=当月末まで稼働のため計上する
       months.forEach(function(ym){
         if(ym<startYm) return;
-        if(cancelYm && ym>=cancelYm) return; // 解約月からは計上しない
+        if(cancelYm && ym>cancelYm) return; // 解約月の翌月から計上しない（解約月＝最終課金月は含める）
         mrrM[ym]+=fee;
       });
       // 解約確定MRR: 解約日の月
