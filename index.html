@@ -2408,8 +2408,13 @@ function renderContract(){
   var syncedAt=(s0.contracts&&s0.contracts.fl_contracts_synced_at)||null;
   var syncedCount=s0.contracts&&s0.contracts.fl_contracts?Object.keys(s0.contracts.fl_contracts).length:0;
   // テーブル生成
+  // MRR(更新対象MRR抜き) = MRR − 前月の更新対象MRR / MRR(解約確定MRR抜き) = MRR − 前月の解約確定MRR
+  var mrrExRenewal=fd.mrr.map(function(v,i){return v-(fd.renewalTargetPrev[i]||0);});
+  var mrrExCancel =fd.mrr.map(function(v,i){return v-(fd.cancelConfirmedPrev[i]||0);});
   var tRows=[
     {label:'MRR',data:fd.mrr,color:'#374151',bold:true},
+    {label:'MRR（更新対象MRR抜き）',data:mrrExRenewal,color:'#6b7280',bold:false},
+    {label:'MRR（解約確定MRR抜き）',data:mrrExCancel,color:'#6b7280',bold:false},
     {label:'更新対象MRR',data:fd.renewalTarget,color:'#d97706',bold:false},
     {label:'更新確定MRR',data:fd.renewalConfirmed,color:'#059669',bold:false},
     {label:'解約申請受領MRR',data:fd.cancelApplied,color:'#ea580c',bold:false},
@@ -6426,6 +6431,8 @@ function buildContractFyData(fy,months){
   var now=new Date();
   var nowYm=now.getFullYear()+'/'+((now.getMonth()+1)<10?'0':'')+(now.getMonth()+1);
   var firstYm=months[0], lastYm=months[months.length-1];
+  var prevYm=ymAdd(firstYm,-1); // 先頭月の前月（前月比の算出用）
+  rtM[prevYm]=0; ccM[prevYm]=0;
   var storeCount=0;
   MASTER_CASES.forEach(function(c){
     (getCStores(c.fl)||[]).forEach(function(st){
@@ -6453,7 +6460,8 @@ function buildContractFyData(fy,months){
           var bYm=ymAdd(startYm,k*period-1);
           if(cancelYm && bYm>=cancelYm) break; // 解約後は更新境界を迎えない
           if(bYm>lastYm) break;
-          if(bYm<firstYm) continue;
+          if(bYm<prevYm) continue; // 前月分も算出（前月比用）
+          if(rtM[bYm]===undefined) rtM[bYm]=0; if(rtCntM[bYm]===undefined) rtCntM[bYm]=0;
           rtM[bYm]+=fee; rtCntM[bYm]++;
           if(bYm<=nowYm){ rcM[bYm]+=fee; rcCntM[bYm]++; } // 現在月以前＝継続確定
         }
@@ -6465,6 +6473,9 @@ function buildContractFyData(fy,months){
     storeCount: storeCount,
     mrr:months.map(function(m){return mrrM[m];}),
     renewalTarget:months.map(function(m){return rtM[m];}),
+    // 前月の更新対象MRR / 解約確定MRR（i=0は先頭月の前月prevYm）
+    renewalTargetPrev:months.map(function(m,i){return (i===0?rtM[prevYm]:rtM[months[i-1]])||0;}),
+    cancelConfirmedPrev:months.map(function(m,i){return (i===0?ccM[prevYm]:ccM[months[i-1]])||0;}),
     // 更新確定MRR = 更新対象MRR − 解約確定MRR（その月に更新を迎えたMRRのうち解約されなかった分。負値は0クランプ）
     renewalConfirmed:months.map(function(m){return Math.max(0, rtM[m]-ccM[m]);}),
     renewalTargetCount:months.map(function(m){return rtCntM[m];}),
