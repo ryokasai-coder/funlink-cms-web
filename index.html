@@ -2444,6 +2444,12 @@ function renderContract(){
   var rtYM=state.contract.renewalTaskYM||thisYM;
   var targetYM=rtYM;
   var flcAll2=(s0.contracts&&s0.contracts.fl_contracts)||{};
+  // 解約申請(解約フォーム由来のcancellation_applied_date)があるFLを判定
+  var storesAll2=(s0.contracts&&s0.contracts.stores)||{};
+  var cancelAppByFl={};
+  Object.keys(storesAll2).forEach(function(fl){
+    (storesAll2[fl]||[]).forEach(function(st){ if(st.cancellation_applied_date) cancelAppByFl[fl]=true; });
+  });
   var renewalTasks=[];
   Object.keys(flcAll2).forEach(function(f){
     var fsd2=flcAll2[f];
@@ -2457,7 +2463,10 @@ function renderContract(){
     var dlYM=dl2.slice(0,7);
     if(dlYM!==targetYM)return;
     var mc2=MASTER_CASES.find(function(x){return x.fl===f;});
-    renewalTasks.push({fl:f,name:mc2?mc2.name:'',fee:fsd2.monthly_fee||0,nextDate:nextDate2,deadline:dl2,progress:fsd2.progress_status||''});
+    // 進捗デフォルト: 明示設定があれば尊重。未設定なら 解約申請あり→未対応 / 申請なし→継続OK
+    var hasApp2=!!cancelAppByFl[f];
+    var prog2=fsd2.progress_status||(hasApp2?'未対応':'継続OK');
+    renewalTasks.push({fl:f,name:mc2?mc2.name:'',fee:fsd2.monthly_fee||0,nextDate:nextDate2,deadline:dl2,progress:prog2,hasApp:hasApp2});
   });
   renewalTasks.sort(function(a,b){return a.deadline<b.deadline?-1:1;});
   var rtRows=renewalTasks.map(function(rt){
@@ -2469,6 +2478,7 @@ function renderContract(){
                   rt.progress==='継続NG'?'<span style="color:#dc2626;font-weight:700">継続NG</span>':
                   rt.progress==='未対応'?'<span style="color:#d97706;font-weight:700">未対応</span>':
                   '<span style="color:#dc2626;font-weight:700"><svg class=ic><use href=#i-alerttriangle /></svg> 未対応</span>';
+    if(rt.hasApp) progBadge+=' <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:#fef2f2;color:#dc2626">解約申請</span>';
     return '<tr style="background:'+rowBg+'">'+
       '<td style="font-size:12px;white-space:nowrap">'+escHtml(rt.fl)+'</td>'+
       '<td style="font-size:12px">'+escHtml(rt.name)+'</td>'+
