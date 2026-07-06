@@ -391,7 +391,10 @@ async function drivePost(key, data) {
 // ---- ストア読み書き ----
 function loadStore() { return _storeCache || {}; }
 
+// viewer(閲覧専用)ロールは全書き込みを不可にする(#47)。保存の低レベル関数を一括ガード
+function requireWrite(){ if(typeof getUserRole==='function' && getUserRole()==='viewer'){ toast('閲覧専用（viewer）ロールのため変更できません', true); return false; } return true; }
 function saveStore(data) {
+  if(!requireWrite()) return;
   // ローカルスナップショット保存（直近3件・データロス防止）
   try {
     var snaps = JSON.parse(localStorage.getItem('funlink_snapshots') || '[]');
@@ -410,6 +413,7 @@ function saveStore(data) {
 
 // ---- MASTER_CASES 保存 ----
 async function saveMasterCases() {
+  if(!requireWrite()) return;
   // 楽観的ロック: 別タブが後から保存していないか確認
   try {
     var ver = JSON.parse(localStorage.getItem('funlink_cases_version') || 'null');
@@ -1118,6 +1122,7 @@ async function loadMeoArticles() {
   }
 }
 async function saveMeoArticles() {
+  if(!requireWrite()) return;
   await _sb.from('cms_store').upsert({ id: 'meo_articles', data: { items: _meoArticles }, updated_at: new Date().toISOString() });
 }
 async function loadMeoProgress() {
@@ -4799,7 +4804,7 @@ var _kpiRowId = 0;
 var _kpiInputFl = '';
 
 function getKpiActuals(){ try{return JSON.parse(localStorage.getItem('reviewKpiActuals')||'{}');}catch(e){return {};} }
-function saveKpiActualsData(d){ localStorage.setItem('reviewKpiActuals', JSON.stringify(d)); }
+function saveKpiActualsData(d){ if(!requireWrite()) return; localStorage.setItem('reviewKpiActuals', JSON.stringify(d)); }
 function getKpiConfig(fl){
   var c=MASTER_CASES.find(function(x){return x.fl===fl;});
   if(c&&c.kpi_config) return c.kpi_config;
@@ -5355,6 +5360,7 @@ function getCsStaffList() {
   try { return JSON.parse(localStorage.getItem('csStaffList') || '[]'); } catch(e){ return []; }
 }
 function saveCsStaffList(arr) {
+  if(!requireWrite()) return;
   localStorage.setItem('csStaffList', JSON.stringify(arr));
 }
 // ---- ログイン中ユーザーの担当者名を取得 ----
