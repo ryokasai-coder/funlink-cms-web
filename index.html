@@ -1530,7 +1530,8 @@ modules.dashboard = function() {
     (function(){
       var _rvLk = s.reviewUnmatchedLinks || {};
       var _rvLkd = Object.keys(_rvLk).filter(function(k){ return !!_rvLk[k]; }).length;
-      var _mPct = Math.floor(_rvLkd / REVIEW_UNMATCHED.length * 100);
+      var _mDen = REVIEW_UNMATCHED.length;
+      var _mPct = _mDen ? Math.floor(_rvLkd / _mDen * 100) : 0; // 分母0ガード(NaN/Infinity防止)
       var _mColor = _mPct >= 80 ? 'green' : (_mPct >= 50 ? 'yellow' : 'red');
       return '<div class="kpi-card '+_mColor+'" style="cursor:pointer" onclick="state.matching.tab=1;loadModule(\'matching\')">' +
         '<div class="kpi-label">クチコミ紐付け率</div>' +
@@ -4254,12 +4255,15 @@ var _rvCsEnd = '';
 var _rvViewMode = 'staff-tree'; // 'staff-tree' | 'company-tree' | 'table'
 var _rvExpanded = {};
 var _rvSearch = '';
+// 当月は today() から動的に決定（月替わりの手動修正を不要にする）
+var _RV_CURRENT = today().slice(0,7);
 var _RV_MONTHS = (function(){
   var ms=[], y=2024, m=1;
-  while(!(y===2026&&m===7)){ ms.push(y+'-'+(m<10?'0':'')+m); if(++m>12){m=1;y++;} }
+  var ep=_RV_CURRENT.split('-'), ey=+ep[0], em=+ep[1];
+  if (ey < 2024 || !em) { ey = 2024; em = 1; } // 異常時ガード
+  while(true){ ms.push(y+'-'+(m<10?'0':'')+m); if(y===ey&&m===em) break; if(++m>12){m=1;y++;} }
   return ms;
-})(); // 2024-01 〜 2026-06 (30ヶ月)
-var _RV_CURRENT = '2026-06';
+})(); // 2024-01 〜 当月
 
 function _rvGetMonths(period, cs, ce) {
   var idx = _RV_MONTHS.indexOf(_RV_CURRENT);
@@ -6193,10 +6197,10 @@ function tvRefreshSubList(taskId){
   }).join('');
 }
 function exportICS(){
-  var s=getStore();var tasks=(s.tasks||[]).filter(function(t){return t.deadline&&t.title&&t.status!=='完了';});
+  var s=getStore();var tasks=((s.taskv2&&s.taskv2.tasks)||[]).filter(function(t){return t.due_date&&t.name&&t.status!=='done';});
   if(!tasks.length){toast('エクスポートするタスクなし','info');return;}
   var ics="BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FunLink CMS//JA\r\n";
-  tasks.forEach(function(t){var d=t.deadline.replace(/-/g,'');ics+="BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:"+d+"\r\nDTEND;VALUE=DATE:"+d+"\r\nSUMMARY:"+t.title.replace(/[,;\\]/g,'\\$&')+"\r\nEND:VEVENT\r\n";});
+  tasks.forEach(function(t){var d=t.due_date.replace(/-/g,'');ics+="BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:"+d+"\r\nDTEND;VALUE=DATE:"+d+"\r\nSUMMARY:"+t.name.replace(/[,;\\]/g,'\\$&')+"\r\nEND:VEVENT\r\n";});
   ics+="END:VCALENDAR";
   var blob=new Blob([ics],{type:'text/calendar'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='funlink_tasks.ics';a.click();
   toast(tasks.length+'件のタスクをエクスポート');
@@ -6264,7 +6268,7 @@ function openProposalForm(editId){
     var sel=ex?ex.status===v:v==='提案中';
     return '<option value="'+v+'"'+(sel?' selected':'')+'>'+v+'</option>';
   }).join('');
-  var flDatalist='<datalist id="pf-fl-list">'+MASTER_CASES.slice(0,500).map(function(c){return '<option value="'+escHtml(c.fl)+'">'+escHtml(c.name)+'</option>';}).join('')+'</datalist>';
+  var flDatalist='<datalist id="pf-fl-list">'+MASTER_CASES.map(function(c){return '<option value="'+escHtml(c.fl)+'">'+escHtml(c.name)+'</option>';}).join('')+'</datalist>';
   openModal(editId?'提案編集':'提案追加',
     flDatalist+
     '<div class="form-group"><label>案件FL <span style="color:#ef4444">*</span></label><input type="text" id="pf-fl" placeholder="FL00001" list="pf-fl-list" value="'+(ex?escHtml(ex.caseFL):'')+'"></div>'+
@@ -6396,12 +6400,16 @@ function openSupportForm(fl){
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="saveSupportLog(\''+escHtml(fl)+'\')">保存</button>');
 }
 function saveSupportLog(fl){
+  var _date=document.getElementById('sf-date').value;
+  var _res=document.getElementById('sf-res').value;
+  if(!_date){toast('日付を入力してください','error');return;}
+  if(!_res){toast('解決状況を選択してください','error');return;}
   var s=getStore();
   s.supportLogs.push({
     id:uid(), caseFL:fl,
-    date:document.getElementById('sf-date').value,
+    date:_date,
     category:document.getElementById('sf-cat').value,
-    resolution:document.getElementById('sf-res').value,
+    resolution:_res,
     duration:+document.getElementById('sf-dur').value||0,
     summary:document.getElementById('sf-summary').value
   });
@@ -7588,7 +7596,7 @@ function renderLearningModule(){
   var ls=state.learning;
   var progress=getMeoUserProgress();
   var cats=['全て','MEO基礎','Googleビジネス','クチコミ対策','SEO','営業','ツール操作','その他'];
-  var diffs=['全て','入門','基礎','応用'];
+  var diffs=['全て','入門','基礎','応用','上級'];
 
   if(ls.viewId){
     var item=(_meoArticles||[]).find(function(x){return x.id===ls.viewId;});
