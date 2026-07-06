@@ -3601,7 +3601,7 @@ function selectMatchCase(fl) {
     '<tbody>'+(storeRows||'<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:24px">検索してください</td></tr>')+'</tbody></table></div></div>';
   document.querySelectorAll('.case-item').forEach(function(el){
     var flEl = el.querySelector('.fl');
-    if (flEl && flEl.textContent.trim().startsWith(fl)) el.scrollIntoView && false;
+    if (flEl && flEl.textContent.trim().startsWith(fl) && el.scrollIntoView) el.scrollIntoView({block:'nearest'}); // 選択案件をリスト内に表示(#14: &&falseのデッドコードを有効化)
   });
 }
 
@@ -5746,12 +5746,6 @@ function openMtgForm(fl,editId){
     (ex&&(ex.summary||ex.agenda)?'<div class="form-group"><details><summary style="font-size:12px;color:#9ca3af;cursor:pointer">旧フォーマット議事録（参照のみ）</summary><div style="font-size:12px;color:#9ca3af;white-space:pre-wrap;padding:8px;background:#f9fafb;border-radius:4px;margin-top:6px">'+escHtml(ex.summary||ex.agenda)+'</div></details></div>':''),
     (editId?'<button class="btn btn-danger" onclick="deleteMtg(\''+escHtml(editId)+'\',\''+escHtml(fl)+'\')">削除</button>':'')+
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button><button class="btn btn-primary" onclick="saveMtg(\''+escHtml(fl)+'\',\''+escHtml(editId||'')+'\')">保存</button>');
-}
-function mtgInsertTemplate(){
-  var el=document.getElementById('mf-summary'); if(!el) return;
-  if(el.value&&!confirm('入力中の内容をテンプレートで上書きしますか？')) return;
-  el.value='【議題】\n・\n\n【決定事項】\n・\n\n【次回確認事項】\n・';
-  el.focus();
 }
 function saveMtg(fl,editId){
   var st=document.getElementById('mf-status').value;
