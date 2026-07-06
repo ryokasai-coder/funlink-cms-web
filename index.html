@@ -2237,6 +2237,7 @@ async function saveCaseAdd() {
   var name = (document.getElementById('ca-name').value||'').trim();
   if (!name) { toast('会社名は必須です', true); return; }
   var fl = (document.getElementById('ca-fl').value||'').trim();
+  if (!fl) { toast('FL番号は必須です', true); return; }
   if (MASTER_CASES.find(function(x){ return x.fl === fl; })) { toast('このFL番号はすでに存在します', true); return; }
   var newCase = {
     fl      : fl,
@@ -3146,14 +3147,15 @@ function showContractDetail(fl){
     var fyFromH=fy+'-07', fyToH=(fy+1)+'-06';
     var _ym7=function(d){return (d||'').slice(0,7).replace(/\//g,'-');};
     var _fee=function(s){return parseFloat(s.monthly_fee)||0;}; // monthly_feeは文字列保存があるため数値化(#23)
-    var newStores=allStores.filter(function(st){var k=_ym7(st.contract_start_date||st.billing_start_date);return k&&k>=fyFromH&&k<=fyToH;});
-    var cancelStores=allStores.filter(function(st){var k=_ym7(st.cancellation_date);return k&&k>=fyFromH&&k<=fyToH;});
-    var renewedStores=allStores.filter(function(st){var k=_ym7(st.first_contract_end_date);return st.status==='active'&&k&&k>=fyFromH&&k<=fyToH;});
+    // CS担当フィルタ済みのfyStoresを集計対象に（従来allStoresで絞り込みが効いていなかった #16/L3）
+    var newStores=fyStores.filter(function(st){var k=_ym7(st.contract_start_date||st.billing_start_date);return k&&k>=fyFromH&&k<=fyToH;});
+    var cancelStores=fyStores.filter(function(st){var k=_ym7(st.cancellation_date);return k&&k>=fyFromH&&k<=fyToH;});
+    var renewedStores=fyStores.filter(function(st){var k=_ym7(st.first_contract_end_date);return st.status==='active'&&k&&k>=fyFromH&&k<=fyToH;});
     var newAmt=newStores.reduce(function(a,s){return a+_fee(s);},0);
     var cancelAmt=cancelStores.reduce(function(a,s){return a+_fee(s);},0);
     var renewAmt=renewedStores.reduce(function(a,s){return a+_fee(s);},0);
-    var totalActive=allStores.filter(function(s){return s.status==='active';}).length;
-    var totalActiveFee=allStores.filter(function(s){return s.status==='active';}).reduce(function(a,s){return a+_fee(s);},0);
+    var totalActive=fyStores.filter(function(s){return s.status==='active';}).length;
+    var totalActiveFee=fyStores.filter(function(s){return s.status==='active';}).reduce(function(a,s){return a+_fee(s);},0);
     content=
       '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px">'+
         '<select onchange="state.contractReport.fy=parseInt(this.value);showContractDetail(\''+escHtml(fl)+'\')" style="width:auto;font-size:12px">'+fyOptions.join('')+'</select>'+
@@ -6342,6 +6344,7 @@ function moveProposal(id,ns){
   if(!p) return;
   p.status=ns;
   p.lastContactDate=today();
+  if(ns==='契約'||ns==='見送り') p.nextFollowDate=''; // クローズ後は期限超過警告を出さない(#L8)
   saveStore(s);
   renderProposalModule();
   if(ns==='契約'){
