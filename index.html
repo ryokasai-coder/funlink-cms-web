@@ -2160,8 +2160,7 @@ function openCaseEditForm(fl) {
     '<div class="form-row">' +
     '<div class="form-group"><label>会社名</label><input type="text" id="ce-name" value="' + escHtml(c.name||'') + '"></div>' +
     '<div class="form-group"><label>ステータス</label><select id="ce-status" onchange="toggleExitReason(this.value)">' +
-    '<option value="契約中"' + (c.status==='契約中'?' selected':'') + '>契約中</option>' +
-    '<option value="契約終了"' + (c.status==='契約終了'?' selected':'') + '>契約終了</option>' +
+    CASE_STATUS_VALUES.map(function(v){return '<option value="'+escHtml(v)+'"'+(c.status===v?' selected':'')+'>'+escHtml(v)+'</option>';}).join('') + // 全ステータスを網羅(2値のみで他ステータスが契約中に化けるのを防止 #18)
     '</select></div></div>' +
     '<div class="form-row" id="exit-reason-row" style="'+(c.status==='契約終了'?'':'display:none')+'">' +
     '<div class="form-group"><label>解約理由 <span style="color:#ef4444">*</span></label>' +
@@ -2235,7 +2234,7 @@ function openCaseAddForm() {
     '<div class="form-row">' +
     '<div class="form-group"><label>FL番号</label><input type="text" id="ca-fl" value="' + escHtml(newFL) + '"></div>' +
     '<div class="form-group"><label>ステータス</label><select id="ca-status">' +
-    '<option value="契約中">契約中</option><option value="契約終了">契約終了</option>' +
+    CASE_STATUS_VALUES.map(function(v){return '<option value="'+escHtml(v)+'">'+escHtml(v)+'</option>';}).join('') + // 全ステータスを選択可(#18)
     '</select></div></div>' +
     '<div class="form-group"><label>会社名 <span style="color:#ef4444">*</span></label><input type="text" id="ca-name" placeholder="例: 株式会社〇〇"></div>' +
     '<div class="form-row">' +
@@ -6421,10 +6420,9 @@ function showSupportLogs(fl){
   }).sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
   var catColors={'管理画面':'badge-blue','写真':'badge-purple','クチコミ':'badge-yellow','解約':'badge-red','請求':'badge-green','LINE':'badge-blue','その他':'badge-gray'};
   var resColors={'解決済み':'badge-green','対応中':'badge-yellow','未解決':'badge-red','対応不要':'badge-gray'};
-  var allLogs=s.supportLogs.filter(function(l){return l.caseFL===fl;});
-  // 統計サマリ
-  var totalMin=allLogs.reduce(function(a,l){return a+(+l.duration||0);},0);
-  var solved=allLogs.filter(function(l){return l.resolution==='解決済み';}).length;
+  // 統計サマリ（表示中のフィルタ後ログに一致させる #9）
+  var totalMin=logs.reduce(function(a,l){return a+(+l.duration||0);},0);
+  var solved=logs.filter(function(l){return l.resolution==='解決済み';}).length;
   var rows=logs.map(function(l){
     var resLabel=l.resolution||'-';
     var resCls=resColors[l.resolution]||'badge-gray';
@@ -6437,7 +6435,7 @@ function showSupportLogs(fl){
     '<div style="padding:10px 16px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'+
     '<strong style="font-size:14px">'+escHtml(c.fl)+' - '+escHtml(c.name)+'</strong>'+
     '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'+
-    '<span style="font-size:11px;color:#6b7280">計'+allLogs.length+'件 / 解決'+solved+'件 / 累計'+totalMin+'分</span>'+
+    '<span style="font-size:11px;color:#6b7280">計'+logs.length+'件 / 解決'+solved+'件 / 累計'+totalMin+'分</span>'+
     catSel+resSel+
     '<button class="btn btn-primary btn-sm" onclick="openSupportForm(\''+escHtml(fl)+'\')">＋ 記録追加</button></div></div>' +
     '<div class="panel-right-inner">'+(logs.length?
