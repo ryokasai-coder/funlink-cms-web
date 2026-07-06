@@ -1206,7 +1206,7 @@ function renderCaseSelector(containerId, cb) {
 function filterCaseSelector(q) {
   var dd = document.getElementById('case-sel-dropdown');
   if (!q) { dd.style.display='none'; return; }
-  var res = MASTER_CASES.filter(function(c){ return c.fl.includes(q) || c.name.toLowerCase().includes(q.toLowerCase()); }).slice(0,20);
+  var res = MASTER_CASES.filter(function(c){ return (c.fl||'').includes(q) || (c.name||'').toLowerCase().includes(q.toLowerCase()); }).slice(0,20);
   if (!res.length) { dd.style.display='none'; return; }
   dd.innerHTML = res.map(function(c){ return '<div style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f3f4f6;font-size:13px" onmousedown="selectCase(\'' + escHtml(c.fl) + '\')"><span style="color:#6b7280;font-size:11px">' + escHtml(c.fl) + '</span> ' + escHtml(c.name) + '</div>'; }).join('');
   dd.style.display = 'block';
@@ -1365,7 +1365,7 @@ function calcChurnScore(fl, todayStr, store) {
   // ① 接触空白日数（最終MTG or サポート日からの経過日数）
   var mtgs = (store.meetings||[]).filter(function(m){ return m.caseFL===fl && (m.date||m.scheduledDate); });
   var supports = (store.supportLogs||[]).filter(function(l){ return l.caseFL===fl && l.date; });
-  var lastDates = mtgs.map(function(m){ return m.date||m.scheduledDate; }).concat(supports.map(function(l){ return l.date; }));
+  var lastDates = mtgs.map(function(m){ return m.date||m.scheduledDate; }).concat(supports.map(function(l){ return l.date; })).filter(function(d){ return d && d<=todayStr; }); // 未来の予定日は接触実績に含めない(#M8)
   var lastContact = lastDates.length ? lastDates.reduce(function(a,b){ return a>b?a:b; }) : null;
   if (lastContact) {
     var daysAgo = Math.floor((new Date(todayStr)-new Date(lastContact))/(1000*86400));
@@ -1382,8 +1382,11 @@ function calcChurnScore(fl, todayStr, store) {
   // ③ クチコミ停止月数（reviewKpiから最終月を取得）
   var rkpi = (store.reviewKpi||{});
   var byFl = (rkpi.by_fl||{})[fl];
-  if (byFl && byFl.last_review_date) {
-    var lastReview = byFl.last_review_date;
+  // by_fl[fl]は店舗配列。全店舗の最新クチコミ日を採用(#M9)
+  var lastReview = Array.isArray(byFl)
+    ? byFl.reduce(function(mx,sk){ return (sk && sk.last_review_date && sk.last_review_date>mx) ? sk.last_review_date : mx; }, '')
+    : ((byFl && byFl.last_review_date) || '');
+  if (lastReview) {
     var monthsAgo = (new Date(todayStr).getFullYear()*12+new Date(todayStr).getMonth()) -
                     (new Date(lastReview).getFullYear()*12+new Date(lastReview).getMonth());
     score += monthsAgo * 15;
@@ -1801,7 +1804,7 @@ function renderMaster() {
   masterFiltered = MASTER_CASES.filter(function(c){
     if (pg_s.statusFilter !== '全て' && c.status !== pg_s.statusFilter) return false;
     var q = (pg_s.search || '').toLowerCase();
-    if (q && !c.fl.toLowerCase().includes(q) && !(c.name||'').toLowerCase().includes(q) &&
+    if (q && !(c.fl||'').toLowerCase().includes(q) && !(c.name||'').toLowerCase().includes(q) &&
         !(c.ccontact||'').toLowerCase().includes(q) && !(c.ctel||'').includes(q) &&
         !(c.cemail||'').toLowerCase().includes(q)) return false;
     return true;
@@ -2686,7 +2689,7 @@ function renderContractList(q){
   var flcAllTmp=(s0tmp.contracts&&s0tmp.contracts.fl_contracts)||{};
   var list=MASTER_CASES.filter(function(c){
     // テキスト検索
-    if(q&&!c.fl.toLowerCase().includes(q.toLowerCase())&&!c.name.toLowerCase().includes(q.toLowerCase())) return false;
+    if(q&&!(c.fl||'').toLowerCase().includes(q.toLowerCase())&&!c.name.toLowerCase().includes(q.toLowerCase())) return false;
     // ステータスフィルタ
     if(cf.status&&c.status!==cf.status) return false;
     // フラグフィルタ
@@ -3320,7 +3323,7 @@ function openContractStoreForm(fl,storeId){
 function csfAutoCalc(){
   var b=document.getElementById('csf-billing'),s=document.getElementById('csf-start');
   if(!b||!s||!b.value) return;
-  var d=new Date(b.value+'T00:00:00'); d.setMonth(d.getMonth()+1); d.setDate(1);
+  var d=new Date(b.value+'T00:00:00'); d.setDate(1); d.setMonth(d.getMonth()+1); // 先にsetDate(1)して月末オーバーフロー回避(#M10)
   s.value=d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-01';
 }
 function saveContractStore(fl,storeId){
@@ -4367,7 +4370,7 @@ function buildMonthlyReportMsg(fl) {
     '',
     '<svg class=ic><use href=#i-barchart /></svg> クチコミ総件数: '+total.toLocaleString()+' 件（前月比 '+dlta(total,prevTotal)+'）',
     '<svg class=ic><use href=#i-star /></svg> 平均評価: '+(rating>0?rating.toFixed(1):'--')+' / 5.0（前月比 '+
-      dlta(Math.round(rating*10),Math.round(prevRating*10)).replace('▲','+').replace('▼','-')+'）',
+      (function(rd){ rd=Math.round(rd*10)/10; return rd>0?'+'+rd.toFixed(1):rd<0?'-'+Math.abs(rd).toFixed(1):'±0'; })(rating-prevRating)+'）', // 評価差はポイント値で(10倍表示バグ修正 #M4)
     unresponded>0
       ? '<svg class=ic><use href=#i-message /></svg> 未返信クチコミ: '+unresponded+' 件（早めの返信をおすすめします）'
       : '<svg class=ic><use href=#i-message /></svg> 未返信クチコミ: なし <svg class=ic><use href=#i-checkcircle /></svg>',
@@ -4507,7 +4510,7 @@ function renderReviewModule() {
   var q = _rvSearch.toLowerCase();
   var cases = MASTER_CASES.filter(function(c){
     if (c.status === '契約終了') return false;
-    if (q && !c.fl.toLowerCase().includes(q) &&
+    if (q && !(c.fl||'').toLowerCase().includes(q) &&
         !(c.name||'').toLowerCase().includes(q) &&
         !(c.cs_staff||'').toLowerCase().includes(q)) return false;
     return true;
@@ -5574,7 +5577,7 @@ function renderMeetingModule() {
 }
 function renderMtgList(q) {
   var s=getStore();
-  var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
+  var list=MASTER_CASES.filter(function(c){return !q||(c.fl||'').toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
   var el=document.getElementById('mtg-case-list');if(!el)return;
   el.innerHTML=list.map(function(c){
     var cnt=s.meetings.filter(function(m){return m.caseFL===c.fl;}).length;
@@ -6369,7 +6372,7 @@ function renderSupportModule(){
 }
 function renderSupportList(q){
   var s=getStore();
-  var list=MASTER_CASES.filter(function(c){return !q||c.fl.toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
+  var list=MASTER_CASES.filter(function(c){return !q||(c.fl||'').toLowerCase().includes(q.toLowerCase())||c.name.toLowerCase().includes(q.toLowerCase());}).slice(0,80);
   var el=document.getElementById('support-case-list');if(!el)return;
   el.innerHTML=list.map(function(c){
     var logs=s.supportLogs.filter(function(l){return l.caseFL===c.fl;});
