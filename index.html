@@ -1143,8 +1143,11 @@ async function markMeoArticleRead(articleId) {
 
 // ===================== UTILS =====================
 function escHtml(s) { if (s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// onclick等のHTML属性内に置く単一引用符JS文字列リテラル用: バックスラッシュ・シングルクォートをJSエスケープしてからHTMLエスケープ
+function escAttrJs(s) { return escHtml(String(s == null ? '' : s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/[\r\n]+/g,' ')); }
 function fmtMoney(n) { if (n == null) return '-'; return '¥' + Number(n).toLocaleString(); }
-function today() { return new Date().toISOString().slice(0,10); }
+// ローカル(JST)日付でYYYY-MM-DDを返す。toISOStringのUTC変換による深夜0-9時の日付ズレを回避
+function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
 function toast(msg, type) {
   type = type || 'success';
@@ -1407,7 +1410,7 @@ modules.dashboard = function() {
   var allTasks = (s.taskv2&&s.taskv2.tasks ? s.taskv2.tasks : s.tasks)||[];
   var openTasks = allTasks.filter(function(t){ return t.status !== 'done' && t.status !== '完了'; }).length;
   var overdueTasks = allTasks.filter(function(t){ return t.status!=='done'&&t.status!=='完了'&&t.due_date&&t.due_date<todayStr; });
-  var recentTasks = (s.tasks||[]).slice().sort(function(a,b){ return (b.deadline||'').localeCompare(a.deadline||''); }).slice(0,6);
+  var recentTasks = allTasks.slice().sort(function(a,b){ return ((b.due_date||b.deadline)||'').localeCompare((a.due_date||a.deadline)||''); }).slice(0,6);
   var recentSupport = (s.supportLogs||[]).slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }).slice(0,6);
   // 未解決サポート: resolution==='未解決' または '対応中' の件数
   var unresolvedSupport = (s.supportLogs||[]).filter(function(l){ return l.resolution==='未解決' || l.resolution==='対応中'; });
@@ -1417,7 +1420,7 @@ modules.dashboard = function() {
   var totalAmt = thisMonth.reduce(function(a,x){return a+x.amount;},0);
   var paidBills = thisMonth.filter(function(x){return x.status==='完了';}).length;
   var pct = thisMonth.length ? Math.round(paidBills/thisMonth.length*100) : 0;
-  var taskRows = recentTasks.length ? recentTasks.map(function(t){ return '<tr><td>' + escHtml(t.title) + '</td><td>' + escHtml(t.deadline||'-') + '</td><td>' + taskStatusBadge(t.status) + '</td></tr>'; }).join('') : '';
+  var taskRows = recentTasks.length ? recentTasks.map(function(t){ return '<tr><td>' + escHtml(t.name||t.title) + '</td><td>' + escHtml(t.due_date||t.deadline||'-') + '</td><td>' + taskStatusBadge(t.status) + '</td></tr>'; }).join('') : '';
   var _supResColors={'解決済み':'badge-green','対応中':'badge-yellow','未解決':'badge-red','対応不要':'badge-gray'};
   var supportRows = recentSupport.length ? recentSupport.map(function(l){ var c=MASTER_CASES.find(function(x){return x.fl===l.caseFL;}); var resCls=_supResColors[l.resolution]||'badge-gray'; return '<tr><td>' + escHtml(c?c.name:l.caseFL) + '</td><td>' + escHtml(l.date) + '</td><td><span class="badge badge-blue">' + escHtml(l.category) + '</span></td><td><span class="badge '+resCls+'">'+escHtml(l.resolution||'-')+'</span></td></tr>'; }).join('') : '';
   // 未収TOP5
@@ -3136,14 +3139,18 @@ function showContractDetail(fl){
     var fyVals=fyMonths.map(function(ym){return Math.round((mrrMap2[ym]||0)/10000);});
     var totalPaid=recurInvs.filter(function(x){return x.status==='完了';}).reduce(function(a,x){return a+x.amount;},0);
     var totalUnpaid=recurInvs.filter(function(x){return x.status!=='完了';}).reduce(function(a,x){return a+x.amount;},0);
-    var newStores=allStores.filter(function(st){var cd=st.contract_start_date||st.billing_start_date;return cd&&cd.slice(0,7)>=fyFrom&&cd.slice(0,7)<=fyTo;});
-    var cancelStores=allStores.filter(function(st){return st.cancellation_date&&st.cancellation_date.slice(0,7)>=fyFrom&&st.cancellation_date.slice(0,7)<=fyTo;});
-    var renewedStores=allStores.filter(function(st){return st.status==='active'&&st.first_contract_end_date&&st.first_contract_end_date.slice(0,7)>=fyFrom&&st.first_contract_end_date.slice(0,7)<=fyTo;});
-    var newAmt=newStores.reduce(function(a,s){return a+(s.monthly_fee||0);},0);
-    var cancelAmt=cancelStores.reduce(function(a,s){return a+(s.monthly_fee||0);},0);
-    var renewAmt=renewedStores.reduce(function(a,s){return a+(s.monthly_fee||0);},0);
+    // 店舗日付はハイフン('YYYY-MM-DD')、fyFrom/fyToはスラッシュ。比較用にハイフンへ正規化(#22)
+    var fyFromH=fy+'-07', fyToH=(fy+1)+'-06';
+    var _ym7=function(d){return (d||'').slice(0,7).replace(/\//g,'-');};
+    var _fee=function(s){return parseFloat(s.monthly_fee)||0;}; // monthly_feeは文字列保存があるため数値化(#23)
+    var newStores=allStores.filter(function(st){var k=_ym7(st.contract_start_date||st.billing_start_date);return k&&k>=fyFromH&&k<=fyToH;});
+    var cancelStores=allStores.filter(function(st){var k=_ym7(st.cancellation_date);return k&&k>=fyFromH&&k<=fyToH;});
+    var renewedStores=allStores.filter(function(st){var k=_ym7(st.first_contract_end_date);return st.status==='active'&&k&&k>=fyFromH&&k<=fyToH;});
+    var newAmt=newStores.reduce(function(a,s){return a+_fee(s);},0);
+    var cancelAmt=cancelStores.reduce(function(a,s){return a+_fee(s);},0);
+    var renewAmt=renewedStores.reduce(function(a,s){return a+_fee(s);},0);
     var totalActive=allStores.filter(function(s){return s.status==='active';}).length;
-    var totalActiveFee=allStores.filter(function(s){return s.status==='active';}).reduce(function(a,s){return a+(s.monthly_fee||0);},0);
+    var totalActiveFee=allStores.filter(function(s){return s.status==='active';}).reduce(function(a,s){return a+_fee(s);},0);
     content=
       '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px">'+
         '<select onchange="state.contractReport.fy=parseInt(this.value);showContractDetail(\''+escHtml(fl)+'\')" style="width:auto;font-size:12px">'+fyOptions.join('')+'</select>'+
@@ -3546,9 +3553,9 @@ function selectMatchCase(fl) {
   var storeRows = filtered.map(function(t){
     var isCur = linked && String(linked.sid)===String(t.sid);
     return '<tr style="'+(isCur?'background:#d1fae5;':'')+'">' +
-      '<td>'+t.sname+'</td><td style="font-size:12px;color:#6b7280">'+(t.cname||'-')+'</td>' +
-      '<td style="font-size:12px">'+(t.tel||'-')+'</td><td>'+statusBadge(t.status)+'</td>' +
-      '<td><button class="btn btn-sm '+(isCur?'btn-danger':'btn-success')+'" onclick="'+(isCur?'unlinkStore(\''+fl+'\')':'linkStore(\''+fl+'\',\''+t.sid+'\',\''+escHtml(t.sname)+'\',\''+escHtml(t.cname||'')+'\',\''+escHtml(t.tel||'\'')+')')+'">'+(isCur?'解除':'紐付け')+'</button></td></tr>';
+      '<td>'+escHtml(t.sname)+'</td><td style="font-size:12px;color:#6b7280">'+escHtml(t.cname||'-')+'</td>' +
+      '<td style="font-size:12px">'+escHtml(t.tel||'-')+'</td><td>'+statusBadge(t.status)+'</td>' +
+      '<td><button class="btn btn-sm '+(isCur?'btn-danger':'btn-success')+'" onclick="'+(isCur?'unlinkStore(\''+escAttrJs(fl)+'\')':'linkStore(\''+escAttrJs(fl)+'\',\''+escAttrJs(t.sid)+'\',\''+escAttrJs(t.sname)+'\',\''+escAttrJs(t.cname||'')+'\',\''+escAttrJs(t.tel||'')+'\')')+'">'+(isCur?'解除':'紐付け')+'</button></td></tr>';
   }).join('');
   var linkedBanner = linked
     ? '<div style="background:#d1fae5;border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">' +
@@ -4272,7 +4279,7 @@ function _rvGetMonths(period, cs, ce) {
   if (period === '6ヶ月')  return _RV_MONTHS.slice(Math.max(0,idx-5), idx+1);
   if (period === '12ヶ月') return _RV_MONTHS.slice(Math.max(0,idx-11), idx+1);
   if (period === '24ヶ月') return _RV_MONTHS.slice(Math.max(0,idx-23), idx+1);
-  if (period === '期間指定') return _RV_MONTHS.filter(function(m){ return m >= cs && m <= ce; });
+  if (period === '期間指定'){ var _cs=cs||'2024-01', _ce=ce||_RV_CURRENT; return _RV_MONTHS.filter(function(m){ return m >= _cs && m <= _ce; }); }
   return [_RV_CURRENT];
 }
 function _rvMonthCount(period) {
@@ -4332,16 +4339,26 @@ function buildMonthlyReportMsg(fl) {
   var c = MASTER_CASES.find(function(x){ return x.fl === fl; });
   if (!c) return '（案件が見つかりません）';
   var storeName = (c.stores && c.stores[0]) ? c.stores[0].sname : c.name;
-  var kpi = (_reviewKpi && _reviewKpi.by_fl && _reviewKpi.by_fl[fl]) || {};
-  var total = kpi.total || 0;
-  var prevTotal = kpi.prev_total || 0;
-  var rating = kpi.rating || 0;
-  var prevRating = kpi.prev_rating || 0;
-  var unresponded = kpi.unresponded || 0;
-  var lastDate = kpi.last_review_date || '未記録';
   var now = new Date();
   var ym = (new Date(now.getFullYear(), now.getMonth()-1, 1));
   var ymStr = ym.getFullYear() + '-' + String(ym.getMonth()+1).padStart(2,'0');
+  var ppm = new Date(now.getFullYear(), now.getMonth()-2, 1);
+  var ppmStr = ppm.getFullYear() + '-' + String(ppm.getMonth()+1).padStart(2,'0');
+  // by_fl[fl]は店舗配列。先月(ymStr)/先々月(ppmStr)を店舗横断で集計する(#24)
+  var _stores = (_reviewKpi && _reviewKpi.by_fl && _reviewKpi.by_fl[fl]) || [];
+  var total=0, prevTotal=0, unresponded=0, _rSum=0, _rN=0, _pRSum=0, _pRN=0, lastDate='';
+  _stores.forEach(function(sk){
+    var mc=sk.monthly_count||{}, mr=sk.monthly_rating_single||{}, rp=sk.monthly_replied_count||{};
+    var cCur=+mc[ymStr]||0, cPrev=+mc[ppmStr]||0;
+    total+=cCur; prevTotal+=cPrev;
+    unresponded+=Math.max(0, cCur-(+rp[ymStr]||0));
+    if(+mr[ymStr]>0){ _rSum+=+mr[ymStr]; _rN++; }
+    if(+mr[ppmStr]>0){ _pRSum+=+mr[ppmStr]; _pRN++; }
+    if(sk.last_review_date && sk.last_review_date>lastDate) lastDate=sk.last_review_date;
+  });
+  var rating = _rN? _rSum/_rN : 0;
+  var prevRating = _pRN? _pRSum/_pRN : 0;
+  if(!lastDate) lastDate='未記録';
 
   function dlta(a,b){ var d=a-b; return d>0?'▲'+d:d<0?'▼'+Math.abs(d):'±0'; }
   return [
@@ -5355,7 +5372,7 @@ function _buildCsStaffBody() {
     return '<tr><td style="padding:7px 12px;font-size:13px">'+escHtml(n)+'</td>'+
       '<td style="padding:7px 12px;font-size:12px;color:#9ca3af">'+cnt+' 社担当</td>'+
       '<td style="padding:7px 12px;text-align:right;white-space:nowrap">'+
-        '<button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;margin-right:4px" onclick="assignAllCsStaff(\''+escHtml(n)+'\')">全件割り当て</button>'+
+        '<button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;margin-right:4px" onclick="assignAllCsStaff(\''+escAttrJs(n)+'\')">全件割り当て</button>'+
         '<button class="btn btn-sm btn-danger" onclick="removeCsStaff('+i+')">削除</button>'+
       '</td></tr>';
   }).join('');
@@ -5955,53 +5972,58 @@ function tvDrawGantt(){
   labEl.addEventListener('scroll',function(){chtEl.scrollTop=labEl.scrollTop;});
   chtEl.addEventListener('scroll',function(){labEl.scrollTop=chtEl.scrollTop;});
 }
-function tvBindGanttDrag(bar,task,startD,dayW,totalW){
-  var dragMode='',ox=0,oLeft=0,oWidth=0,origS,origE;
-  function startDrag(e,mode){
-    dragMode=mode;ox=e.clientX;oLeft=parseInt(bar.style.left)||0;oWidth=parseInt(bar.style.width)||dayW;
-    origS=task.start_date?new Date(task.start_date+'T00:00:00'):new Date();
-    origE=task.due_date?new Date(task.due_date+'T00:00:00'):new Date();
-    document.body.style.cursor='grabbing';e.preventDefault();e.stopPropagation();
-  }
-  var lH=bar.querySelector('[data-drag-handle=left]');
-  var rH=bar.querySelector('[data-drag-handle=right]');
-  if(lH) lH.addEventListener('mousedown',function(e){startDrag(e,'left');});
-  if(rH) rH.addEventListener('mousedown',function(e){startDrag(e,'right');});
-  bar.addEventListener('mousedown',function(e){if(!dragMode)startDrag(e,'move');});
+var _tvDrag=null, _tvDragBound=false;
+function _tvYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); } // ローカル日付(UTC変換の1日ズレ回避 #26)
+function _tvBindDragDoc(){
+  if(_tvDragBound) return; _tvDragBound=true; // documentリスナは一度だけ(バー毎追加のリーク回避 #31)
   document.addEventListener('mousemove',function(e){
-    if(!dragMode) return;
-    var dx=e.clientX-ox,dd=Math.round(dx/dayW);
-    if(dragMode==='move'){
-      bar.style.left=Math.max(0,oLeft+dd*dayW)+'px';
-      var ns=new Date(origS);ns.setDate(ns.getDate()+dd);var ne=new Date(origE);ne.setDate(ne.getDate()+dd);
+    var D=_tvDrag; if(!D) return;
+    var bar=D.bar, task=D.task, dx=e.clientX-D.ox, dd=Math.round(dx/D.dayW);
+    if(D.mode==='move'){
+      bar.style.left=Math.max(0,D.oLeft+dd*D.dayW)+'px';
+      var ns=new Date(D.origS);ns.setDate(ns.getDate()+dd);var ne=new Date(D.origE);ne.setDate(ne.getDate()+dd);
       task._ns=ns;task._ne=ne;
       tvShowTip(e,(ns.getMonth()+1)+'/'+(ns.getDate())+' 〜 '+(ne.getMonth()+1)+'/'+(ne.getDate()));
-    } else if(dragMode==='right'){
-      var newW=Math.max(dayW,oWidth+dd*dayW);bar.style.width=newW+'px';
-      var ne=new Date(origS);ne.setDate(ne.getDate()+Math.round(newW/dayW)-1);
+    } else if(D.mode==='right'){
+      var newW=Math.max(D.dayW,D.oWidth+dd*D.dayW);bar.style.width=newW+'px';
+      var ne=new Date(D.origS);ne.setDate(ne.getDate()+Math.round(newW/D.dayW)-1);
       task._ne=ne;task._ns=null;
-      tvShowTip(e,(origS.getMonth()+1)+'/'+(origS.getDate())+' 〜 '+(ne.getMonth()+1)+'/'+(ne.getDate()));
+      tvShowTip(e,(D.origS.getMonth()+1)+'/'+(D.origS.getDate())+' 〜 '+(ne.getMonth()+1)+'/'+(ne.getDate()));
     } else {
-      var ddC=Math.min(dd,Math.round(oWidth/dayW)-1);
-      bar.style.left=Math.max(0,oLeft+ddC*dayW)+'px';bar.style.width=Math.max(dayW,oWidth-ddC*dayW)+'px';
-      var ns=new Date(origS);ns.setDate(ns.getDate()+ddC);
+      var ddC=Math.min(dd,Math.round(D.oWidth/D.dayW)-1);
+      bar.style.left=Math.max(0,D.oLeft+ddC*D.dayW)+'px';bar.style.width=Math.max(D.dayW,D.oWidth-ddC*D.dayW)+'px';
+      var ns=new Date(D.origS);ns.setDate(ns.getDate()+ddC);
       task._ns=ns;task._ne=null;
-      tvShowTip(e,(ns.getMonth()+1)+'/'+(ns.getDate())+' 〜 '+(origE.getMonth()+1)+'/'+(origE.getDate()));
+      tvShowTip(e,(ns.getMonth()+1)+'/'+(ns.getDate())+' 〜 '+(D.origE.getMonth()+1)+'/'+(D.origE.getDate()));
     }
   });
   document.addEventListener('mouseup',function(){
-    if(!dragMode) return;
-    var mode=dragMode;dragMode='';document.body.style.cursor='';
+    var D=_tvDrag; if(!D) return;
+    var mode=D.mode, task=D.task; _tvDrag=null; document.body.style.cursor='';
     var ts=tvGetTasks();var t=ts.find(function(x){return x.id===task.id;});
     if(t){
-      if(mode==='move'||mode==='left'){if(task._ns)t.start_date=task._ns.toISOString().slice(0,10);}
-      if(mode==='move'||mode==='right'){if(task._ne)t.due_date=task._ne.toISOString().slice(0,10);}
+      if(mode==='move'||mode==='left'){if(task._ns)t.start_date=_tvYmd(task._ns);}
+      if(mode==='move'||mode==='right'){if(task._ne)t.due_date=_tvYmd(task._ne);}
       tvSaveTasks(ts);
       if(task._ns)task.start_date=t.start_date;
       if(task._ne)task.due_date=t.due_date;
     }
     task._ns=null;task._ne=null;tvHideTip();
   });
+}
+function tvBindGanttDrag(bar,task,startD,dayW,totalW){
+  _tvBindDragDoc();
+  function startDrag(e,mode){
+    _tvDrag={bar:bar,task:task,mode:mode,dayW:dayW,ox:e.clientX,oLeft:parseInt(bar.style.left)||0,oWidth:parseInt(bar.style.width)||dayW,
+      origS:task.start_date?new Date(task.start_date+'T00:00:00'):new Date(),
+      origE:task.due_date?new Date(task.due_date+'T00:00:00'):new Date()};
+    document.body.style.cursor='grabbing';e.preventDefault();e.stopPropagation();
+  }
+  var lH=bar.querySelector('[data-drag-handle=left]');
+  var rH=bar.querySelector('[data-drag-handle=right]');
+  if(lH) lH.addEventListener('mousedown',function(e){startDrag(e,'left');});
+  if(rH) rH.addEventListener('mousedown',function(e){startDrag(e,'right');});
+  bar.addEventListener('mousedown',function(e){if(!_tvDrag)startDrag(e,'move');});
 }
 var _tvTip=null;
 function tvShowTip(e,text){ if(!_tvTip){_tvTip=document.createElement('div');_tvTip.style.cssText='position:fixed;background:#1E293B;color:#fff;font-size:11px;padding:5px 9px;border-radius:6px;pointer-events:none;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,.2)';document.body.appendChild(_tvTip);} _tvTip.textContent=text;_tvTip.style.display='block';_tvTip.style.left=(e.clientX+12)+'px';_tvTip.style.top=(e.clientY-30)+'px'; }
@@ -6938,10 +6960,11 @@ function renderPaymentModule(){
   // ---- インメモリ重複除去（inv番号でユニーク化・完了優先）----
   (function(){
     var stP={'完了':0,'未収':1,'未処理':2};
+    var _pri=function(st){return stP[st]!=null?stP[st]:3;}; // 完了(0)がfalsyで3に化けるのを防ぐ
     var m={};
     invoices.forEach(function(x){
       if(!x.inv){return;}
-      if(!m[x.inv]||(stP[x.status]||3)<(stP[m[x.inv].status]||3)) m[x.inv]=x;
+      if(!m[x.inv]||_pri(x.status)<_pri(m[x.inv].status)) m[x.inv]=x;
     });
     invoices=Object.values?Object.values(m):Object.keys(m).map(function(k){return m[k];});
   })();
@@ -7101,8 +7124,8 @@ function renderPaymentModule(){
         '<td style="padding:8px 10px">'+statusBadgeHtml+'</td>'+
         '<td style="padding:8px 10px;min-width:180px">'+latestActHtml+'</td>'+
         '<td style="padding:8px 10px;white-space:nowrap">'+
-          '<button class="btn btn-sm btn-primary" style="font-size:11px;padding:3px 8px" onclick="openUnpaidActionForm(\''+escHtml(fl_)+'\',\''+escHtml(g.company)+'\')">+ 対応記録</button>'+
-          ' <button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="state.contract.selectedFL=\''+escHtml(fl_)+'\';state.contract.contractTab=5;loadModule(\'contract\')">履歴</button>'+
+          '<button class="btn btn-sm btn-primary" style="font-size:11px;padding:3px 8px" onclick="openUnpaidActionForm(\''+escAttrJs(fl_)+'\',\''+escAttrJs(g.company)+'\')">+ 対応記録</button>'+
+          ' <button class="btn btn-sm btn-secondary" style="font-size:11px;padding:3px 8px" onclick="state.contract.selectedFL=\''+escAttrJs(fl_)+'\';state.contract.contractTab=5;loadModule(\'contract\')">履歴</button>'+
         '</td>'+
       '</tr>';
     }).join('');
@@ -7381,7 +7404,7 @@ function openUnpaidActionForm(fl,company){
       '<div class="form-group"><label>次回支払予定日</label><input type="date" id="uaf-next-date" style="width:100%"></div>'+
       '<div class="form-group"><label>支払予定金額</label><input type="number" id="uaf-next-amt" placeholder="0" style="width:100%"></div>'+
     '</div>',
-    '<button class="btn btn-primary" onclick="saveUnpaidAction(\''+escHtml(fl)+'\',\''+escHtml(company)+'\')">保存</button>'+
+    '<button class="btn btn-primary" onclick="saveUnpaidAction(\''+escAttrJs(fl)+'\',\''+escAttrJs(company)+'\')">保存</button>'+
     '<button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>'
   );
 }
