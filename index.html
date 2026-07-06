@@ -512,10 +512,17 @@ async function initApp() {
     // 初回ログイン判定
     var loginCount = parseInt(localStorage.getItem('funlink_login_count') || '0') + 1;
     localStorage.setItem('funlink_login_count', loginCount);
-    // ブラウザ更新時は直前に開いていたモジュールを復元（未保存/権限なし/不明はダッシュボード）
+    // 起動/更新時に開くモジュールを決定
+    // 優先: URLパス(/master 等) → 直前モジュール(localStorage) → ダッシュボード
+    // 未保存/権限なし/不明はダッシュボードにフォールバック
     var startMod = 'dashboard';
-    try { startMod = localStorage.getItem('funlink_last_module') || 'dashboard'; } catch(e){}
+    try {
+      var _pathMod = location.pathname.replace(/^\/+/, '').split('/')[0];
+      startMod = _pathMod || localStorage.getItem('funlink_last_module') || 'dashboard';
+    } catch(e){}
     if (!MODULE_TITLES[startMod] || !canAccessModule(startMod)) startMod = 'dashboard';
+    // 初期URLを正規化（replaceStateで履歴を増やさずパスを確定）
+    try { history.replaceState({ module: startMod }, '', '/' + startMod); } catch(e){}
     document.querySelectorAll('.nav-item').forEach(function(x){ x.classList.remove('active'); if(x.dataset.module===startMod) x.classList.add('active'); });
     currentModule = startMod;
     loadModule(startMod);
@@ -1267,6 +1274,16 @@ document.querySelectorAll('.nav-item').forEach(function(el){
   });
 });
 
+// ブラウザの戻る/進むでモジュールを切替（URLパス → モジュール）
+window.addEventListener('popstate', function(){
+  if (!currentUser) return; // 未ログイン時は無視
+  var m = location.pathname.replace(/^\/+/, '').split('/')[0] || 'dashboard';
+  if (!MODULE_TITLES[m] || !canAccessModule(m)) m = 'dashboard';
+  document.querySelectorAll('.nav-item').forEach(function(x){ x.classList.remove('active'); if(x.dataset.module===m) x.classList.add('active'); });
+  currentModule = m;
+  loadModule(m, true); // trueでpushState抑止（履歴の二重登録防止）
+});
+
 var MODULE_TITLES = {dashboard:'ダッシュボード', master:'案件マスタ', contract:'契約管理', line:'LINE対応', review:'クチコミ管理', meeting:'MTG・議事録', task:'タスク管理', proposal:'提案管理', support:'サポート履歴', payment:'支払い管理', learning:'MEO学習',matching:'データ付け合せ', settings:'設定'};
 // Funrixデザイン：トップバーのEN見出し
 var MODULE_TITLES_EN = {dashboard:'DASHBOARD', master:'CASE MASTER', contract:'CONTRACTS', line:'LINE', review:'REVIEWS', meeting:'MEETINGS', task:'TASKS', proposal:'PROPOSALS', support:'SUPPORT', payment:'PAYMENTS', learning:'MEO LEARNING', matching:'MATCHING', settings:'SETTINGS'};
@@ -1293,7 +1310,7 @@ function canAccessModule(mod) {
   return (ROLE_LEVEL[role] || 0) >= (ROLE_LEVEL[required] || 0);
 }
 
-function loadModule(mod) {
+function loadModule(mod, _skipPush) {
   if (mod !== 'line') _unsubscribeLineRealtime();
   var _pt = document.getElementById('page-title');
   _pt.textContent = MODULE_TITLES[mod] || mod;
@@ -1313,6 +1330,12 @@ function loadModule(mod) {
   }
   // 直前モジュールを記憶（ブラウザ更新時に復元）
   try { localStorage.setItem('funlink_last_module', mod); } catch(e){}
+  // URLをパスに同期（/dashboard, /master 等。ブックマーク・戻る/進む対応）
+  // _skipPush=true は popstate 由来の呼び出し（履歴の二重登録を防ぐ）
+  try {
+    var _path = '/' + mod;
+    if (!_skipPush && location.pathname !== _path) history.pushState({ module: mod }, '', _path);
+  } catch(e){}
   if (modules[mod]) modules[mod]();
 }
 

@@ -1,4 +1,7 @@
 {
   "cleanUrls": false,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/:mod(dashboard|master|contract|line|review|meeting|task|proposal|support|payment|learning|matching|settings)", "destination": "/index.html" }
+  ]
 }
