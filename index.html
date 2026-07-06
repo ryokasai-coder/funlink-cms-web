@@ -5098,8 +5098,9 @@ function _rvRenderKpiAnalysis(cases){
     // 複数店舗の場合は報告件数バッジ用
     var storeCount=(c.stores||[]).length;
     var reportedStoreCount=clientReports.length;
-    // KPI表示は代表レポート（または集計）を使用
-    var flAct=clientReport||{};
+    // KPI表示: クライアント報告 + 内部手動入力実績(getKpiActuals)をマージ。手動入力を優先(#48)
+    var _manualAct=(getKpiActuals()[fl]||{})[_RV_CURRENT]||{};
+    var flAct=Object.assign({}, clientReport||{}, _manualAct);
     var items=cfg.items||[];
     var behs=(cfg.behaviors&&cfg.behaviors.length)?cfg.behaviors:KPI_BEHAVIOR_DEFAULTS.slice();
     var reviewActual=_rvFlActual(fl),reviewTarget=_rvFlTarget(fl);
