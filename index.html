@@ -1826,7 +1826,14 @@ function renderMaster() {
     return '<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="masterSort(\'' + key + '\')">' + label + arrow + '</th>';
   }
 
-  var rowsHtml = masterFiltered.map(function(c){
+  // ページング（1ページ50件・521社規模のDOM負荷軽減 #46）
+  var MASTER_PAGE_SIZE = 50;
+  var _mTotalPages = Math.max(1, Math.ceil(masterFiltered.length / MASTER_PAGE_SIZE));
+  var _mPage = Math.min(Math.max(1, pg_s.page || 1), _mTotalPages);
+  pg_s.page = _mPage;
+  var _mStart = (_mPage - 1) * MASTER_PAGE_SIZE;
+  var _mPageRows = masterFiltered.slice(_mStart, _mStart + MASTER_PAGE_SIZE);
+  var rowsHtml = _mPageRows.map(function(c){
     var stores = c.stores || [];
     var gbpCount = stores.filter(function(s){ return s.gbp_status; }).length;
     var plans = stores.map(function(s){ return s.plan||''; }).filter(Boolean);
@@ -1866,8 +1873,8 @@ function renderMaster() {
     '<div style="display:flex;flex-direction:column;height:calc(100vh - 112px)">' +
     // ツールバー
     '<div style="padding:10px 16px;background:#fff;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-    '<input type="text" placeholder="FL番号・会社名・担当者・電話・メールで検索" value="' + escHtml(pg_s.search) + '" oninput="state.master.search=this.value;renderMaster()" style="width:300px">' +
-    '<select onchange="state.master.statusFilter=this.value;renderMaster()" style="font-size:12px">' +
+    '<input type="text" placeholder="FL番号・会社名・担当者・電話・メールで検索" value="' + escHtml(pg_s.search) + '" oninput="state.master.search=this.value;state.master.page=1;renderMaster()" style="width:300px">' +
+    '<select onchange="state.master.statusFilter=this.value;state.master.page=1;renderMaster()" style="font-size:12px">' +
     '<option value="全て"' + (pg_s.statusFilter==='全て'?' selected':'') + '>全ステータス</option>' +
     CASE_STATUS_VALUES.map(function(v){ return '<option value="' + escHtml(v) + '"' + (pg_s.statusFilter===v?' selected':'') + '>' + escHtml(v) + '</option>'; }).join('') +
     '</select>' +
@@ -1890,12 +1897,20 @@ function renderMaster() {
     '<tbody>' + (rowsHtml || '<tr><td colspan="10" style="padding:40px;text-align:center;color:#9ca3af">該当なし</td></tr>') + '</tbody>' +
     '</table>' +
     '</div>' +
+    // ページャ
+    (_mTotalPages > 1 ?
+      '<div style="padding:8px 16px;background:#fff;border-top:1px solid #e5e7eb;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px">' +
+      '<button class="btn btn-secondary btn-sm" ' + (_mPage<=1?'disabled':'') + ' onclick="state.master.page=' + (_mPage-1) + ';renderMaster()">← 前へ</button>' +
+      '<span style="color:#6b7280">' + _mPage + ' / ' + _mTotalPages + ' ページ（' + (_mStart+1) + '–' + Math.min(_mStart+MASTER_PAGE_SIZE, masterFiltered.length) + ' / ' + masterFiltered.length + '件）</span>' +
+      '<button class="btn btn-secondary btn-sm" ' + (_mPage>=_mTotalPages?'disabled':'') + ' onclick="state.master.page=' + (_mPage+1) + ';renderMaster()">次へ →</button>' +
+      '</div>' : '') +
     '</div>';
 }
 
 function masterSort(key) {
   if (masterSortKey === key) masterSortAsc = !masterSortAsc;
   else { masterSortKey = key; masterSortAsc = true; }
+  state.master.page = 1;
   renderMaster();
 }
 
@@ -5617,7 +5632,7 @@ function mtgActionsToTask(mtgId,fl){
   var m=s.meetings.find(function(x){return x.id===mtgId;});
   if(!m||!m.actions){toast('アクションが入力されていません',true);return;}
   var c=MASTER_CASES.find(function(x){return x.fl===fl;});
-  var d=new Date(); d.setMonth(d.getMonth()+1); d.setDate(1); d.setDate(0);
+  var _n=new Date(); var d=new Date(_n.getFullYear(), _n.getMonth()+2, 0); // 翌月末で一貫化(月末オーバーフロー回避)
   var due=d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
   var firstAtt=m.attendees?(m.attendees.split(/[、,，]/)[0]||'').trim():'';
   var obj={id:uid(),fl:fl,store_id:'',store_name:'',name:'MTGアクション: '+(m.date||m.scheduledDate||'')+(c?' ('+c.name+')':''),assignee:firstAtt,start_date:today(),due_date:due,priority:'mid',status:'todo',note:m.actions,subtasks:[]};
