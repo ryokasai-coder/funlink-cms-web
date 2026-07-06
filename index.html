@@ -5750,9 +5750,11 @@ function saveMtg(fl,editId){
   var s=getStore();
   if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0){obj.createdAt=s.meetings[idx].createdAt||obj.createdAt;s.meetings[idx]=Object.assign({}, s.meetings[idx], obj);}else s.meetings.push(obj);} // 作成日・旧summary/agendaを保持(#41)
   else s.meetings.push(obj);
-  saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);
+  saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);_refreshMtgList();
 }
-function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);logAudit('delete','meeting',id,fl);closeModal();toast('削除しました');showMtgList(fl); }
+// 左パネルの件数バッジを現在の検索条件で再描画(#L6)
+function _refreshMtgList(){ try{var el=document.getElementById('mtg-case-list');if(el){var inp=el.closest('.panel-left').querySelector('input');renderMtgList(inp?inp.value:'');}}catch(e){} }
+function deleteMtg(id,fl){ if(!confirm('このMTGを削除しますか？')) return; var s=getStore(); s.meetings=s.meetings.filter(function(x){return x.id!==id;}); saveStore(s);logAudit('delete','meeting',id,fl);closeModal();toast('削除しました');showMtgList(fl);_refreshMtgList(); }
 
 // TASK V2
 modules.task = function() { renderTaskModule(); };
@@ -6227,7 +6229,7 @@ function exportICS(){
   var s=getStore();var tasks=((s.taskv2&&s.taskv2.tasks)||[]).filter(function(t){return t.due_date&&t.name&&t.status!=='done';});
   if(!tasks.length){toast('エクスポートするタスクなし','info');return;}
   var ics="BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FunLink CMS//JA\r\n";
-  tasks.forEach(function(t){var d=t.due_date.replace(/-/g,'');ics+="BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:"+d+"\r\nDTEND;VALUE=DATE:"+d+"\r\nSUMMARY:"+t.name.replace(/[,;\\]/g,'\\$&')+"\r\nEND:VEVENT\r\n";});
+  tasks.forEach(function(t){var d=t.due_date.replace(/-/g,'');var _ed=new Date(t.due_date+'T00:00:00');_ed.setDate(_ed.getDate()+1);var de=_tvYmd(_ed).replace(/-/g,'');ics+="BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:"+d+"\r\nDTEND;VALUE=DATE:"+de+"\r\nSUMMARY:"+t.name.replace(/[,;\\]/g,'\\$&')+"\r\nEND:VEVENT\r\n";});
   ics+="END:VCALENDAR";
   var blob=new Blob([ics],{type:'text/calendar'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='funlink_tasks.ics';a.click();
   toast(tasks.length+'件のタスクをエクスポート');
@@ -6441,9 +6443,11 @@ function saveSupportLog(fl){
     duration:+document.getElementById('sf-dur').value||0,
     summary:document.getElementById('sf-summary').value
   });
-  saveStore(s);closeModal();toast('保存しました');showSupportLogs(fl);
+  saveStore(s);closeModal();toast('保存しました');showSupportLogs(fl);_refreshSupportList();
 }
-function deleteSupportLog(id,fl){if(!confirm('削除しますか？'))return;var s=getStore();s.supportLogs=s.supportLogs.filter(function(l){return l.id!==id;});saveStore(s);toast('削除しました','info');showSupportLogs(fl);}
+// 左パネルの件数バッジを現在の検索条件で再描画(#L9)
+function _refreshSupportList(){ try{var el=document.getElementById('support-case-list');if(el){var inp=el.closest('.panel-left').querySelector('input');renderSupportList(inp?inp.value:'');}}catch(e){} }
+function deleteSupportLog(id,fl){if(!confirm('削除しますか？'))return;var s=getStore();s.supportLogs=s.supportLogs.filter(function(l){return l.id!==id;});saveStore(s);toast('削除しました','info');showSupportLogs(fl);_refreshSupportList();}
 
 // ===================== BILLING & CONTRACT HELPERS =====================
 function isRecurring(inv){return !(inv.product||'').match(/初期|設定費|登録料|キャンペーン|事務手数料/);}
