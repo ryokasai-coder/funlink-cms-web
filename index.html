@@ -1535,7 +1535,7 @@ modules.dashboard = function() {
     // 算出: reviewUnmatchedLinks の紐付済み件数 / REVIEW_UNMATCHED.length * 100（小数点以下切り捨て）
     (function(){
       var _rvLk = s.reviewUnmatchedLinks || {};
-      var _rvLkd = Object.keys(_rvLk).filter(function(k){ return !!_rvLk[k]; }).length;
+      var _rvLkd = Object.keys(_rvLk).filter(function(k){ var f=_rvGetFl(_rvLk,k); return f && f!=='_skip_'; }).length; // スキップは紐付け済みに計上しない(#42)
       var _mDen = REVIEW_UNMATCHED.length;
       var _mPct = _mDen ? Math.floor(_rvLkd / _mDen * 100) : 0; // 分母0ガード(NaN/Infinity防止)
       var _mColor = _mPct >= 80 ? 'green' : (_mPct >= 50 ? 'yellow' : 'red');
@@ -3435,7 +3435,7 @@ modules.matching = function() {
   var linked_count = UNMATCHED_CASES.filter(function(c){ return s.storeLinks && s.storeLinks[c.fl]; }).length;
   // タブ1: クチコミ未マッチ86店舗
   var rvLinks = s.reviewUnmatchedLinks || {};
-  var rvLinked = Object.keys(rvLinks).filter(function(k){ return !!rvLinks[k]; }).length;
+  var rvLinked = Object.keys(rvLinks).filter(function(k){ var f=_rvGetFl(rvLinks,k); return f && f!=='_skip_'; }).length; // スキップは計上しない(#42)
   var rvLeft = REVIEW_UNMATCHED.length - rvLinked;
 
   var tabsHtml =
@@ -5487,7 +5487,7 @@ function _buildUnmatchedBody() {
   var s = getStore();
   var links = s.reviewUnmatchedLinks || {};
   var unmList = _getReviewUnmatched();
-  var linked = Object.keys(links).filter(function(k){ return !!links[k] && unmList.indexOf(k)>=0; }).length;
+  var linked = Object.keys(links).filter(function(k){ var f=_rvGetFl(links,k); return f && f!=='_skip_' && unmList.indexOf(k)>=0; }).length; // スキップは計上しない(#42)
   var pct = Math.round(linked / unmList.length * 100);
   var list = unmList.filter(function(n) {
     if (_rvUnmSearch && n.toLowerCase().indexOf(_rvUnmSearch.toLowerCase()) < 0) return false;
@@ -5526,11 +5526,11 @@ function _buildUnmatchedBody() {
       '<div style="flex:1;background:#e5e7eb;border-radius:4px;height:8px">'+
         '<div style="background:#10b981;height:8px;border-radius:4px;width:'+pct+'%"></div>'+
       '</div>'+
-      '<span style="font-size:12px;color:#6b7280;white-space:nowrap">'+linked+' / '+REVIEW_UNMATCHED.length+' マッチ済み</span>'+
+      '<span style="font-size:12px;color:#6b7280;white-space:nowrap">'+linked+' / '+unmList.length+' マッチ済み</span>'+
     '</div>'+
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">'+
-      '<button style="font-size:12px;padding:4px 10px;border:1px solid #e5e7eb;border-radius:4px;background:'+(_rvUnmFilter==='all'?'#1e3a5f':'#fff')+';color:'+(_rvUnmFilter==='all'?'#fff':'#374151')+';cursor:pointer" onclick="_rvUnmFilter=\'all\';document.getElementById(\'modal-body\').innerHTML=_buildUnmatchedBody()">全件 ('+REVIEW_UNMATCHED.length+')</button>'+
-      '<button style="font-size:12px;padding:4px 10px;border:1px solid #e5e7eb;border-radius:4px;background:'+(_rvUnmFilter==='unlinked'?'#1e3a5f':'#fff')+';color:'+(_rvUnmFilter==='unlinked'?'#fff':'#374151')+';cursor:pointer" onclick="_rvUnmFilter=\'unlinked\';document.getElementById(\'modal-body\').innerHTML=_buildUnmatchedBody()">未対応 ('+(REVIEW_UNMATCHED.length-linked)+')</button>'+
+      '<button style="font-size:12px;padding:4px 10px;border:1px solid #e5e7eb;border-radius:4px;background:'+(_rvUnmFilter==='all'?'#1e3a5f':'#fff')+';color:'+(_rvUnmFilter==='all'?'#fff':'#374151')+';cursor:pointer" onclick="_rvUnmFilter=\'all\';document.getElementById(\'modal-body\').innerHTML=_buildUnmatchedBody()">全件 ('+unmList.length+')</button>'+
+      '<button style="font-size:12px;padding:4px 10px;border:1px solid #e5e7eb;border-radius:4px;background:'+(_rvUnmFilter==='unlinked'?'#1e3a5f':'#fff')+';color:'+(_rvUnmFilter==='unlinked'?'#fff':'#374151')+';cursor:pointer" onclick="_rvUnmFilter=\'unlinked\';document.getElementById(\'modal-body\').innerHTML=_buildUnmatchedBody()">未対応 ('+(unmList.length-linked)+')</button>'+
       '<input type="text" placeholder="店舗名検索…" value="'+escHtml(_rvUnmSearch)+'" oninput="_rvUnmSearch=this.value;document.getElementById(\'modal-body\').innerHTML=_buildUnmatchedBody()" style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:4px;width:200px">'+
     '</div>'+
     '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'+
@@ -5748,7 +5748,7 @@ function saveMtg(fl,editId){
   var attendees=checked.join('、');
   var obj={id:editId||uid(),caseFL:fl,meetingStatus:st,meetingType:mt,scheduledDate:st==='予定'?document.getElementById('mf-date').value:'',date:st==='実施済み'?document.getElementById('mf-date').value:'',attendees:attendees,issues:issues,decisions:decisions,actions:actions,createdAt:today()};
   var s=getStore();
-  if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0)s.meetings[idx]=obj;else s.meetings.push(obj);}
+  if(editId){var idx=s.meetings.findIndex(function(x){return x.id===editId;});if(idx>=0){obj.createdAt=s.meetings[idx].createdAt||obj.createdAt;s.meetings[idx]=Object.assign({}, s.meetings[idx], obj);}else s.meetings.push(obj);} // 作成日・旧summary/agendaを保持(#41)
   else s.meetings.push(obj);
   saveStore(s);logAudit(editId?'update':'create','meeting',obj.id,fl);closeModal();toast('保存しました');showMtgList(fl);
 }
@@ -6332,7 +6332,7 @@ function saveProposal(editId){
   };
   if(editId){
     var idx=s.proposals.findIndex(function(x){return x.id===editId;});
-    if(idx>=0) s.proposals[idx]=obj; else s.proposals.push(obj);
+    if(idx>=0) s.proposals[idx]=Object.assign({}, s.proposals[idx], obj); else s.proposals.push(obj); // 既存フィールド(lastContactDate等)を保持(#40)
   } else {
     s.proposals.push(obj);
   }
