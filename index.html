@@ -4834,7 +4834,7 @@ function _buildKpiConfigBody(fl){
   var behs=(cfg.behaviors&&cfg.behaviors.length)?cfg.behaviors:KPI_BEHAVIOR_DEFAULTS.slice();
   var freq=cfg.report_frequency||'月に1回';
   var token=cfg.client_token||'';
-  var baseUrl=location.origin+location.pathname.replace('index.html','')+'client-report.html';
+  var baseUrl=location.origin+'/client-report.html'; // ルート絶対パス(パスURL化で/review等でも壊れないように)
   var clientUrl=token?baseUrl+'#fl='+encodeURIComponent(fl)+'&token='+encodeURIComponent(token):'';
   _kpiRowId=0;
   var tplBtns=Object.keys(KPI_ITEM_TEMPLATES).map(function(k){
@@ -4880,7 +4880,7 @@ function _rvCopyKpiUrl(){
   document.body.removeChild(tmp);
 }
 function _rvBuildClientUrl(fl, token){
-  var base=location.origin+location.pathname.replace(/[^/]*$/, '')+'client-report.html';
+  var base=location.origin+'/client-report.html'; // ルート絶対パス(パスURL化で/review等でも壊れないように)
   return base+'#fl='+encodeURIComponent(fl)+'&token='+encodeURIComponent(token);
 }
 function _rvShowTokenSection(fl, token){
