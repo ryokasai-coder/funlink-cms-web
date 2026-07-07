@@ -85,6 +85,9 @@ function sbFetch(path,opts){
     'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'
   }},opts||{}));
 }
+// CRMは案件データ(cases)をGAS Driveに保存するため、レポートもDriveから読む（Supabaseは古い値でトークン不一致になる）
+var GAS_URL='https://script.google.com/macros/s/AKfycbynxyVOv4pl4hTDZb-BFw4sQsy72Oe5NFKXg3Qe8CqpMYIWylBalKj9qW5K2-W6ZpMh-Q/exec';
+async function driveGet(key){ try{ var r=await fetch(GAS_URL+'?key='+key,{cache:'no-store'}); var j=await r.json(); return (j.ok&&j.exists)?j.data:null; }catch(e){ return null; } }
 function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function show(html){ document.getElementById('app').innerHTML=html; }
 
@@ -113,18 +116,17 @@ async function init(){
     return;
   }
   try{
-    var [casesResp, rptResp] = await Promise.all([
-      sbFetch('/rest/v1/cms_store?id=eq.cases&select=data'),
+    var [casesDrive, rptResp] = await Promise.all([
+      driveGet('cases'), // CRMと同じGAS Driveから読む(トークン同期のため)
       sbFetch('/rest/v1/cms_store?id=eq.client_reports&select=data')
     ]);
-    var casesData=await casesResp.json();
     var rptData=await rptResp.json();
 
-    if(!casesData||!casesData[0]){
+    if(!casesDrive||!casesDrive.master){
       show('<div class="card"><div class="card-body"><div class="status-box status-err">データ読み込みに失敗しました。時間をおいて再度お試しください。</div></div></div>');
       return;
     }
-    var cases=casesData[0].data.master||[];
+    var cases=casesDrive.master||[];
     var c=cases.find(function(x){return x.fl===FL;});
     if(!c){
       show('<div class="card"><div class="card-body"><div class="status-box status-err">FL番号が見つかりません（'+escHtml(FL)+'）。<br>担当CSにURLを再発行してもらってください。</div></div></div>');
