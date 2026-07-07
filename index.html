@@ -1804,10 +1804,21 @@ function openDataQualityAudit() {
   openModal('データ品質監査 — ' + MASTER_CASES.length + '社', body, '', 'modal-lg');
 }
 
+// 案件のサービス種別(FunLink/ReelBox)を請求商品×productServiceMapから自動判定(#3配線)
+function buildFlServiceIndex(){
+  var map=(getStore().productServiceMap)||{};
+  var idx={};
+  (getBillingData().invoices||[]).forEach(function(x){ var v=map[(x.product||'').trim()]; if(v){ (idx[x.fl]=idx[x.fl]||{})[v]=true; } });
+  return idx;
+}
+function flServiceType(idx, fl){ var set=idx[fl]||{}; var hasF=set.funlink||set.both, hasR=set.reelbox||set.both; if(hasF&&hasR)return 'both'; if(hasR)return 'reelbox'; if(hasF)return 'funlink'; return 'unknown'; }
+function caseServiceBadge(t){ var m=({funlink:['FunLink','#4F46E5','#EEF2FF'],reelbox:['ReelBox','#059669','#ECFDF5'],both:['両方','#D97706','#FFFBEB']})[t]; if(!m)m=['未分類','#6B7280','#F3F4F6']; return '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;color:'+m[1]+';background:'+m[2]+'">'+m[0]+'</span>'; }
 function renderMaster() {
   var pg_s = state.master;
+  var _svcIdx = buildFlServiceIndex();
   masterFiltered = MASTER_CASES.filter(function(c){
     if (pg_s.statusFilter !== '全て' && c.status !== pg_s.statusFilter) return false;
+    if (pg_s.serviceFilter && pg_s.serviceFilter !== '全て' && flServiceType(_svcIdx, c.fl) !== pg_s.serviceFilter) return false;
     var q = (pg_s.search || '').toLowerCase();
     if (q && !(c.fl||'').toLowerCase().includes(q) && !(c.name||'').toLowerCase().includes(q) &&
         !(c.ccontact||'').toLowerCase().includes(q) && !(c.ctel||'').includes(q) &&
@@ -1838,6 +1849,8 @@ function renderMaster() {
   pg_s.page = _mPage;
   var _mStart = (_mPage - 1) * MASTER_PAGE_SIZE;
   var _mPageRows = masterFiltered.slice(_mStart, _mStart + MASTER_PAGE_SIZE);
+  var _svcTally={funlink:0,reelbox:0,both:0,unknown:0};
+  MASTER_CASES.forEach(function(c){ _svcTally[flServiceType(_svcIdx,c.fl)]++; });
   var rowsHtml = _mPageRows.map(function(c){
     var stores = c.stores || [];
     var gbpCount = stores.filter(function(s){ return s.gbp_status; }).length;
@@ -1849,7 +1862,7 @@ function renderMaster() {
       '<td style="padding:10px 12px;font-weight:600;color:#0056a8;white-space:nowrap;vertical-align:top">' + escHtml(c.fl) + '</td>' +
       '<td style="padding:10px 12px;vertical-align:top">' + statusBadge(c.status) + '</td>' +
       '<td style="padding:10px 12px;vertical-align:top">' +
-        '<div style="font-weight:600;white-space:nowrap">' + escHtml(c.name) + '</div>' +
+        '<div style="font-weight:600;white-space:nowrap">' + escHtml(c.name) + ' ' + caseServiceBadge(flServiceType(_svcIdx, c.fl)) + '</div>' +
         sub(c.caddr) +
       '</td>' +
       '<td style="padding:10px 12px;vertical-align:top;white-space:nowrap">' +
@@ -1883,7 +1896,12 @@ function renderMaster() {
     '<option value="全て"' + (pg_s.statusFilter==='全て'?' selected':'') + '>全ステータス</option>' +
     CASE_STATUS_VALUES.map(function(v){ return '<option value="' + escHtml(v) + '"' + (pg_s.statusFilter===v?' selected':'') + '>' + escHtml(v) + '</option>'; }).join('') +
     '</select>' +
+    // サービス種別フィルタ(FunLink/ReelBox)
+    '<select onchange="state.master.serviceFilter=this.value;state.master.page=1;renderMaster()" style="font-size:12px">' +
+    [['全て','全サービス'],['funlink','FunLink'],['reelbox','ReelBox'],['both','両方'],['unknown','未分類']].map(function(o){ return '<option value="'+o[0]+'"'+((pg_s.serviceFilter||'全て')===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('') +
+    '</select>' +
     '<span style="font-size:12px;color:#9ca3af">' + masterFiltered.length + ' 件</span>' +
+    '<span style="font-size:11px;color:#6b7280">FunLink ' + _svcTally.funlink + ' / ReelBox ' + _svcTally.reelbox + ' / 両方 ' + _svcTally.both + ' / 未分類 ' + _svcTally.unknown + '</span>' +
     '<div style="margin-left:auto;display:flex;gap:8px">' +
     '<button class="btn btn-secondary btn-sm" onclick="openDataQualityAudit()" title="データ品質チェック"><svg class=ic><use href=#i-search /></svg> 品質監査</button>' +
     '<button class="btn btn-primary btn-sm" onclick="openCaseAddForm()">＋ 案件追加</button>' +
