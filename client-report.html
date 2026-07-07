@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPI実績報告 | Funrix</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans','Yu Gothic',sans-serif;background:#f0f4f8;min-height:100vh;color:#1e293b}
+.wrap{max-width:540px;margin:0 auto;padding:16px}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden;margin-bottom:16px}
+.card-header{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:#fff;padding:20px 20px 16px}
+.card-header h1{font-size:18px;font-weight:700;margin-bottom:4px}
+.card-header p{font-size:13px;opacity:.8}
+.card-body{padding:20px}
+.section-title{font-size:13px;font-weight:700;color:#374151;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #e5e7eb}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px}
+.field input[type=number],.field textarea,.field select{width:100%;padding:10px 12px;font-size:15px;border:1.5px solid #e2e8f0;border-radius:8px;outline:none;transition:border .2s;background:#fff}
+.field input[type=number]:focus,.field textarea:focus,.field select:focus{border-color:#2563eb}
+.check-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s;background:#fff}
+.check-item:has(input:checked){background:#f0fdf4;border-color:#86efac}
+.check-item input[type=checkbox]{width:20px;height:20px;accent-color:#16a34a;cursor:pointer;flex-shrink:0}
+.check-item span{font-size:14px;color:#374151}
+.btn-submit{width:100%;padding:15px;background:#2563eb;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;transition:background .2s;margin-top:8px}
+.btn-submit:hover{background:#1d4ed8}
+.btn-submit:disabled{background:#94a3b8;cursor:not-allowed}
+.freq-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.2);padding:3px 10px;border-radius:12px;font-size:12px;margin-top:6px}
+.status-box{padding:16px;border-radius:8px;font-size:14px;text-align:center}
+.status-ok{background:#f0fdf4;color:#166534;border:1px solid #86efac}
+.status-err{background:#fef2f2;color:#991b1b;border:1px solid #fca5a5}
+.history-item{background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:8px;font-size:13px}
+.history-item .date{color:#6b7280;font-size:12px;margin-bottom:4px}
+select.month-sel{padding:8px 10px;font-size:14px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;width:100%}
+/* カウンター */
+.counter-wrap{display:flex;flex-direction:column;gap:12px;margin-bottom:16px}
+.counter-item{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:14px 16px}
+.counter-label{font-size:13px;font-weight:600;color:#374151;margin-bottom:10px}
+.counter-ctrl{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.counter-btn{width:58px;height:58px;border:none;border-radius:50%;font-size:28px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .1s,box-shadow .1s;-webkit-tap-highlight-color:transparent;user-select:none}
+.counter-btn:active{transform:scale(.92)}
+.counter-btn-plus{background:#2563eb;color:#fff;box-shadow:0 4px 12px rgba(37,99,235,.35)}
+.counter-btn-plus:active{box-shadow:0 2px 6px rgba(37,99,235,.25)}
+.counter-btn-minus{background:#f1f5f9;color:#64748b;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.counter-num{font-size:48px;font-weight:800;color:#1e293b;min-width:80px;text-align:center;letter-spacing:-2px;line-height:1}
+.counter-unit{font-size:14px;color:#94a3b8;margin-top:4px;text-align:center}
+/* 都度カウンターモード */
+.spot-counter{background:linear-gradient(135deg,#1e3a5f,#1d4ed8);border-radius:18px;padding:28px 20px;text-align:center;margin-bottom:16px}
+.spot-counter-label{font-size:15px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:6px}
+.spot-counter-num{font-size:80px;font-weight:900;color:#fff;line-height:1;letter-spacing:-4px;margin:8px 0;transition:transform .12s;display:inline-block}
+.spot-counter-unit{font-size:16px;color:rgba(255,255,255,.7);margin-bottom:20px}
+.spot-btn{width:100px;height:100px;border-radius:50%;border:none;background:#fff;font-size:36px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.25);transition:transform .12s;-webkit-tap-highlight-color:transparent;display:inline-flex;align-items:center;justify-content:center}
+.spot-btn:active,.spot-btn.pressed{transform:scale(.9)}
+.spot-preset-wrap{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:20px}
+.spot-preset-btn{padding:10px 16px;border-radius:24px;border:1.5px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;font-size:15px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .1s,background .1s}
+.spot-preset-btn:active{transform:scale(.92);background:rgba(255,255,255,.3)}
+.mode-tab{display:flex;gap:0;background:#f1f5f9;border-radius:10px;padding:3px;margin-bottom:16px}
+.mode-tab button{flex:1;padding:8px;font-size:13px;font-weight:600;border:none;border-radius:8px;cursor:pointer;background:transparent;color:#64748b;transition:all .2s}
+.mode-tab button.active{background:#fff;color:#1e3a5f;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="app"><div style="text-align:center;padding:60px 20px;color:#6b7280">読み込み中...</div></div>
+</div>
+<script>
+var SUPABASE_URL='https://xfumvuxahjferrapdywj.supabase.co';
+var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmdW12dXhhaGpmZXJyYXBkeXdqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExMzIxNzQsImV4cCI6MjA5NjcwODE3NH0.6NX0EQubDt3h-jy2E9VDS2ehb6IhFnYnHTajNQ4YEM4';
+
+// ハッシュ（#）またはクエリ（?）の両方に対応
+var _rawHash=(location.hash||'').replace(/^#/,'');
+var _rawSearch=(location.search||'').replace(/^\?/,'');
+var params=new URLSearchParams(_rawHash||_rawSearch);
+var FL=params.get('fl')||'';
+var TOKEN=params.get('token')||'';
+
+var caseData=null, kpiConfig=null, existingReports=[], allReportsData=null;
+var selectedStoreId='';
+var _inputMode='counter'; // 'counter' | 'form'
+var _counters={}; // itemId -> count
+var FREQ_LABELS={'毎日':'毎日','週次':'毎週','2週間に1回':'2週間に1回','月に1回':'毎月','都度報告':'都度'};
+
+function sbFetch(path,opts){
+  return fetch(SUPABASE_URL+path,Object.assign({headers:{
+    'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json'
+  }},opts||{}));
+}
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function show(html){ document.getElementById('app').innerHTML=html; }
+
+function getNow(){
+  var d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+'T'+
+    String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':00';
+}
+function getCurrentMonth(){
+  var d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+function getMonthOptions(){
+  var months=[];
+  var d=new Date();
+  for(var i=0;i<6;i++){
+    var m=new Date(d.getFullYear(),d.getMonth()-i,1);
+    months.push(m.getFullYear()+'-'+String(m.getMonth()+1).padStart(2,'0'));
+  }
+  return months;
+}
+
+async function init(){
+  if(!FL||!TOKEN){
+    show('<div class="card"><div class="card-body"><div class="status-box status-err">URLが無効です。担当CSにご確認ください。<br><small style="font-size:11px;color:#991b1b">（URLにfl・tokenパラメータが必要です）</small></div></div></div>');
+    return;
+  }
+  try{
+    var [casesResp, rptResp] = await Promise.all([
+      sbFetch('/rest/v1/cms_store?id=eq.cases&select=data'),
+      sbFetch('/rest/v1/cms_store?id=eq.client_reports&select=data')
+    ]);
+    var casesData=await casesResp.json();
+    var rptData=await rptResp.json();
+
+    if(!casesData||!casesData[0]){
+      show('<div class="card"><div class="card-body"><div class="status-box status-err">データ読み込みに失敗しました。時間をおいて再度お試しください。</div></div></div>');
+      return;
+    }
+    var cases=casesData[0].data.master||[];
+    var c=cases.find(function(x){return x.fl===FL;});
+    if(!c){
+      show('<div class="card"><div class="card-body"><div class="status-box status-err">FL番号が見つかりません（'+escHtml(FL)+'）。<br>担当CSにURLを再発行してもらってください。</div></div></div>');
+      return;
+    }
+    var storedToken=((c.kpi_config||{}).client_token||'').trim();
+    if(storedToken!==TOKEN.trim()){
+      show('<div class="card"><div class="card-body"><div class="status-box status-err">URLが無効または期限切れです。<br>担当CSにURLの再発行を依頼してください。<br><small style="color:#b91c1c;font-size:11px">（'+escHtml(c.name)+'のURL設定を確認中）</small></div></div></div>');
+      return;
+    }
+    caseData=c;
+    kpiConfig=c.kpi_config||{};
+
+    // 店舗が1つならデフォルト設定
+    var stores=caseData.stores||[];
+    selectedStoreId=stores.length===1?String(stores[0].store_id||''):'';
+
+    allReportsData=(rptData&&rptData[0]&&rptData[0].data)?rptData[0].data:{by_fl:{}};
+    existingReports=(allReportsData.by_fl&&allReportsData.by_fl[FL])||[];
+
+    renderForm(getCurrentMonth());
+  }catch(e){
+    show('<div class="card"><div class="card-body"><div class="status-box status-err">通信エラー: '+escHtml(e.message)+'</div></div></div>');
+  }
+}
+
+function renderForm(selectedMonth, storeOverride){
+  if(storeOverride!==undefined) selectedStoreId=storeOverride;
+  var stores=caseData.stores||[];
+  var multiStore=stores.length>1;
+  var items=kpiConfig.items||[];
+  var behs=kpiConfig.behaviors||[
+    {id:'b_ask',label:'来店客への声がけ実施'},
+    {id:'b_rep',label:'クチコミへの返信対応（48h以内）'},
+    {id:'b_pop',label:'卓上POP・QRコードの掲示'},
+    {id:'b_mtg',label:'スタッフへの周知・共有MTG実施'}
+  ];
+  // client_freq_set=true のときだけクライアント設定済みとみなす（CS設定の古い値は無視）
+  var freq=(kpiConfig.client_freq_set&&kpiConfig.report_frequency)||'';
+  // 複数店舗：月+店舗で既存レポートを特定
+  var existing=existingReports.find(function(r){
+    return r.month===selectedMonth && (!multiStore || String(r.store_id||'')=== String(selectedStoreId||''));
+  })||{};
+  var monthOpts=getMonthOptions().map(function(m){
+    return '<option value="'+m+'"'+(m===selectedMonth?' selected':'')+'>'+m.replace('-','年')+'月</option>';
+  }).join('');
+  // 店舗セレクター（複数店舗のみ）
+  var storeSelector='';
+  if(multiStore){
+    var storeOpts=stores.map(function(s){
+      var sid=String(s.store_id||'');
+      return '<option value="'+escHtml(sid)+'"'+(sid===String(selectedStoreId)?' selected':'')+'>'+escHtml(s.sname||'店舗'+sid)+'</option>';
+    }).join('');
+    storeSelector='<div class="field"><label>🏪 報告する店舗</label>'+
+      '<select class="month-sel" id="cr-store" onchange="renderForm(document.getElementById(\'cr-month\').value,this.value)">'+
+        '<option value="">-- 店舗を選択してください --</option>'+storeOpts+
+      '</select></div>';
+  }
+  // カウンター初期値をexistingから設定
+  items.forEach(function(item){
+    if(_counters[item.id]===undefined) _counters[item.id]=existing[item.id]!==undefined?Number(existing[item.id]):0;
+  });
+  var isSpot=freq==='都度報告';
+  var itemFields='';
+  if(items.length){
+    if(isSpot&&items.length===1){
+      // 都度報告×1項目：大型タップカウンター
+      var it=items[0];
+      var cnt=_counters[it.id]||0;
+      var sid=escHtml(it.id);
+      var presets=[1,2,3,4,5,10];
+      var presetBtns=presets.map(function(n){
+        return '<button class="spot-preset-btn" onclick="spotPreset(\''+sid+'\','+n+')">+'+n+'人</button>';
+      }).join('');
+      itemFields='<div class="spot-counter">'+
+        '<div class="spot-counter-label">'+escHtml(it.label)+'</div>'+
+        '<div class="spot-counter-num" id="spot-num-'+sid+'">'+cnt+'</div>'+
+        '<div class="spot-counter-unit">'+escHtml(it.unit||'件')+'</div>'+
+        // プリセットボタン（来客人数）
+        '<div class="spot-preset-wrap">'+presetBtns+'</div>'+
+        // 大型タップ ＋ ボタン
+        '<button class="spot-btn" ontouchstart="this.classList.add(\'pressed\')" ontouchend="this.classList.remove(\'pressed\')" onclick="spotCount(\''+sid+'\')">＋1</button>'+
+        '<div style="margin-top:16px;display:flex;align-items:center;gap:12px;justify-content:center">'+
+          '<button onclick="adjustCount(\''+sid+'\',-1)" style="padding:8px 20px;border:1.5px solid rgba(255,255,255,.4);border-radius:20px;background:transparent;color:#fff;font-size:18px;cursor:pointer">－ 1</button>'+
+          '<button onclick="resetCount(\''+sid+'\')" style="padding:8px 20px;border:1.5px solid rgba(255,255,255,.4);border-radius:20px;background:transparent;color:#fff;font-size:13px;cursor:pointer">リセット</button>'+
+        '</div>'+
+      '</div>';
+    } else {
+      // 通常：モード切替タブ＋カウンターUI
+      itemFields='<div class="mode-tab">'+
+        '<button class="'+(_inputMode==='counter'?'active':'')+'" onclick="setMode(\'counter\')">🔢 カウンター</button>'+
+        '<button class="'+(_inputMode==='form'?'active':'')+'" onclick="setMode(\'form\')">✏️ 直接入力</button>'+
+      '</div>';
+      if(_inputMode==='counter'){
+        itemFields+='<div class="counter-wrap">'+items.map(function(item){
+          var cnt=_counters[item.id]||0;
+          return '<div class="counter-item">'+
+            '<div class="counter-label">'+escHtml(item.label)+'</div>'+
+            '<div class="counter-ctrl">'+
+              '<button class="counter-btn counter-btn-minus" onclick="adjustCount(\''+escHtml(item.id)+'\',-1)">－</button>'+
+              '<div><div class="counter-num" id="cnt-'+escHtml(item.id)+'">'+cnt+'</div>'+
+                '<div class="counter-unit">'+escHtml(item.unit||'件')+'</div>'+
+              '</div>'+
+              '<button class="counter-btn counter-btn-plus" onclick="adjustCount(\''+escHtml(item.id)+'\',1)">＋</button>'+
+            '</div>'+
+          '</div>';
+        }).join('')+'</div>';
+      } else {
+        itemFields+='<div>'+items.map(function(item){
+          var val=_counters[item.id]!==undefined?_counters[item.id]:'';
+          return '<div class="field"><label>'+escHtml(item.label)+(item.unit?' ('+escHtml(item.unit)+')':'')+'</label>'+
+            '<input type="number" id="cr-'+escHtml(item.id)+'" value="'+escHtml(String(val))+'" placeholder="数値を入力" inputmode="numeric" onchange="_counters[\''+escHtml(item.id)+'\']=parseFloat(this.value)||0"></div>';
+        }).join('')+'</div>';
+      }
+    }
+  }
+  var behChecks=behs.map(function(b){
+    var checked=existing[b.id]===true;
+    return '<label class="check-item"><input type="checkbox" id="cr-bh-'+escHtml(b.id)+'" '+(checked?'checked':'')+'>'+
+      '<span>'+escHtml(b.label)+'</span></label>';
+  }).join('');
+  var noteVal=existing._note||'';
+  // 履歴：店舗別に表示
+  var historyRecs=multiStore&&selectedStoreId
+    ? existingReports.filter(function(r){return String(r.store_id||'')===String(selectedStoreId);})
+    : existingReports;
+  var historyHtml='';
+  if(historyRecs.length){
+    var recent=historyRecs.slice().reverse().slice(0,3);
+    historyHtml='<div class="card"><div class="card-body">'+
+      '<div class="section-title">過去の報告履歴'+(multiStore&&selectedStoreId?' (この店舗)':'')+'</div>'+
+      recent.map(function(r){
+        var sub=(r.submitted_at||'').slice(0,10);
+        var storeName=r.store_name?'<span style="font-size:11px;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;margin-right:4px">'+escHtml(r.store_name)+'</span>':'';
+        var itemSummary=(kpiConfig.items||[]).filter(function(it){return r[it.id]!==undefined;}).map(function(it){
+          return it.label+': '+r[it.id]+(it.unit?it.unit:'');
+        }).join(' / ');
+        return '<div class="history-item"><div class="date">'+storeName+r.month.replace('-','年')+'月 報告（'+sub+'）</div>'+
+          (itemSummary?'<div>'+escHtml(itemSummary)+'</div>':'')+
+          (r._note?'<div style="color:#6b7280;margin-top:3px">'+escHtml(r._note)+'</div>':'')+
+          '</div>';
+      }).join('')+
+      '</div></div>';
+  }
+  var alreadySubmitted=!!existing.submitted_at;
+  var needStoreSelect=multiStore&&!selectedStoreId;
+  show(
+    '<div class="card">'+
+      '<div class="card-header">'+
+        '<h1>KPI実績報告</h1>'+
+        '<p>'+escHtml(caseData.name)+'</p>'+
+        (freq?'<div class="freq-badge">📅 '+escHtml(freq)+'</div>':'')+
+      '</div>'+
+      '<div class="card-body">'+
+        // 報告頻度が未設定の場合は必須選択を表示
+        (!freq?
+          '<div class="field" style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:16px">'+
+            '<label style="color:#92400e;font-weight:700">📅 報告頻度を選択してください <span style="color:#dc2626">*</span></label>'+
+            '<select id="cr-freq" required onchange="saveFrequency(this.value)" style="width:100%;padding:10px 12px;font-size:15px;border:1.5px solid #fde68a;border-radius:8px;background:#fff;margin-top:6px">'+
+              '<option value="">-- 選択してください（必須）--</option>'+
+              '<option value="毎日">毎日</option>'+
+              '<option value="週次">週次</option>'+
+              '<option value="2週間に1回">2週間に1回</option>'+
+              '<option value="月に1回">月に1回</option>'+
+              '<option value="都度報告">都度報告</option>'+
+            '</select>'+
+          '</div>':
+          '<div style="margin-bottom:12px;font-size:13px;color:#6b7280">📅 報告頻度: <strong style="color:#374151">'+escHtml(freq)+'</strong>'+
+          ' <button onclick="resetFrequency()" style="font-size:11px;padding:1px 6px;border:1px solid #d1d5db;border-radius:4px;background:#fff;cursor:pointer;margin-left:6px;color:#6b7280">変更</button></div>'
+        )+
+        (alreadySubmitted?'<div class="status-box status-ok" style="margin-bottom:16px">✅ '+selectedMonth.replace('-','年')+'月'+(existing.store_name?' ('+escHtml(existing.store_name)+')':'')+'の報告は送信済みです。内容を確認・修正できます。</div>':'')+
+        '<div class="field"><label>報告対象月</label>'+
+          '<select class="month-sel" id="cr-month" onchange="renderForm(this.value)">'+monthOpts+'</select>'+
+        '</div>'+
+        storeSelector+
+        (needStoreSelect?'<div class="status-box" style="background:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;margin-bottom:16px;font-size:14px">↑ 報告する店舗を選択してください</div>':'')+
+        (items.length&&!needStoreSelect?'<div class="section-title" style="margin-bottom:12px">KPI数値</div>'+itemFields:(!items.length&&!needStoreSelect?'<p style="font-size:13px;color:#9ca3af;margin-bottom:16px">KPI入力項目は担当CSが設定します。</p>':''))+
+        (!needStoreSelect?'<div class="section-title" style="margin-bottom:10px">行動チェック</div>'+behChecks:'')+
+        (!needStoreSelect?'<div class="field" style="margin-top:14px"><label>コメント・所感（任意）</label>'+
+          '<textarea id="cr-note" rows="3" placeholder="今月の取り組みや課題など">'+escHtml(noteVal)+'</textarea>'+
+        '</div>':'')+
+        (!needStoreSelect?'<button class="btn-submit" id="submit-btn" '+((!freq)?'disabled style="background:#94a3b8;cursor:not-allowed" title="報告頻度を選択してください"':'')+' onclick="submitReport()">'+
+          (alreadySubmitted?'📝 内容を更新する':'📬 送信する')+
+        '</button>':'')+
+      '</div>'+
+    '</div>'+
+    historyHtml
+  );
+}
+
+async function submitReport(){
+  var btn=document.getElementById('submit-btn');
+  if(!btn) return;
+  btn.disabled=true; btn.textContent='送信中...';
+  try{
+    var selectedMonth=document.getElementById('cr-month')?document.getElementById('cr-month').value:getCurrentMonth();
+    var stores=caseData.stores||[];
+    var multiStore=stores.length>1;
+    var currentStoreEl=document.getElementById('cr-store');
+    var currentStoreId=currentStoreEl?currentStoreEl.value:selectedStoreId;
+    var currentStore=currentStoreId?stores.find(function(s){return String(s.store_id||'')===String(currentStoreId);}):null;
+    if(multiStore&&!currentStoreId){
+      throw new Error('店舗を選択してください');
+    }
+    var data={month:selectedMonth, submitted_at:getNow()};
+    if(currentStoreId) data.store_id=currentStoreId;
+    if(currentStore&&currentStore.sname) data.store_name=currentStore.sname;
+    (kpiConfig.items||[]).forEach(function(item){
+      if(_inputMode==='counter'||(kpiConfig.report_frequency==='都度報告')){
+        // カウンターモード：_countersから読み取り
+        if(_counters[item.id]!==undefined) data[item.id]=_counters[item.id]||0;
+      } else {
+        var el=document.getElementById('cr-'+item.id);
+        if(el&&el.value!=='') data[item.id]=parseFloat(el.value)||0;
+      }
+    });
+    var behs=kpiConfig.behaviors||[{id:'b_ask'},{id:'b_rep'},{id:'b_pop'},{id:'b_mtg'}];
+    behs.forEach(function(b){
+      var el=document.getElementById('cr-bh-'+b.id);
+      if(el) data[b.id]=el.checked;
+    });
+    var noteEl=document.getElementById('cr-note');
+    if(noteEl&&noteEl.value.trim()) data._note=noteEl.value.trim();
+
+    // 既存レポートを更新 or 追加（月+店舗IDで重複除外）
+    var reports=existingReports.filter(function(r){
+      return !(r.month===selectedMonth && String(r.store_id||'')===String(currentStoreId||''));
+    });
+    reports.push(data);
+    allReportsData.by_fl=allReportsData.by_fl||{};
+    allReportsData.by_fl[FL]=reports;
+    existingReports=reports;
+
+    // Upsert to Supabase
+    var checkResp=await sbFetch('/rest/v1/cms_store?id=eq.client_reports&select=id');
+    var checkData=await checkResp.json();
+    var exists=checkData&&checkData.length>0;
+    var method=exists?'PATCH':'POST';
+    var url=exists?
+      SUPABASE_URL+'/rest/v1/cms_store?id=eq.client_reports':
+      SUPABASE_URL+'/rest/v1/cms_store';
+    var body=exists?
+      JSON.stringify({data:allReportsData}):
+      JSON.stringify({id:'client_reports',data:allReportsData});
+    var headers={apikey:SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'};
+    var saveResp=await fetch(url,{method:method,headers:headers,body:body});
+    if(!saveResp.ok) throw new Error('保存エラー '+saveResp.status);
+    show(
+      '<div class="card">'+
+        '<div class="card-header"><h1>送信完了</h1><p>'+escHtml(caseData.name)+'</p></div>'+
+        '<div class="card-body">'+
+          '<div class="status-box status-ok" style="margin-bottom:16px;font-size:15px">'+
+            '📬 '+selectedMonth.replace('-','年')+'月'+(currentStore?' ('+escHtml(currentStore.sname)+')':'')+'の実績を報告しました<br>'+
+            '<span style="font-size:12px;color:#166534;margin-top:4px;display:block">ありがとうございます。担当CSが確認します。</span>'+
+          '</div>'+
+          '<button onclick="renderForm(\''+selectedMonth+'\')" style="width:100%;padding:12px;border:1.5px solid #2563eb;border-radius:8px;background:#fff;color:#2563eb;font-size:14px;font-weight:600;cursor:pointer">引き続き入力・確認する</button>'+
+        '</div>'+
+      '</div>'
+    );
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='再送信する';}
+    var errDiv=document.createElement('div');
+    errDiv.className='status-box status-err';
+    errDiv.style.margin='12px 0';
+    errDiv.textContent='送信エラー: '+e.message;
+    btn&&btn.parentNode&&btn.parentNode.insertBefore(errDiv,btn);
+  }
+}
+
+async function saveFrequency(freq){
+  if(!freq) return;
+  kpiConfig.report_frequency=freq;
+  kpiConfig.client_freq_set=true;
+  try{
+    var resp=await sbFetch('/rest/v1/cms_store?id=eq.cases&select=data');
+    var rows=await resp.json();
+    if(!rows||!rows[0]) throw new Error('データ取得失敗');
+    var master=rows[0].data.master||[];
+    var c=master.find(function(x){return x.fl===FL;});
+    if(c){
+      c.kpi_config=c.kpi_config||{};
+      c.kpi_config.report_frequency=freq;
+      c.kpi_config.client_freq_set=true;
+      var patchResp=await fetch(SUPABASE_URL+'/rest/v1/cms_store?id=eq.cases',{
+        method:'PATCH',
+        headers:{apikey:SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+        body:JSON.stringify({data:{master:master}})
+      });
+      if(!patchResp.ok) throw new Error('保存エラー '+patchResp.status);
+    }
+  }catch(e){
+    console.warn('頻度保存エラー:', e.message);
+  }
+  renderForm(getCurrentMonth());
+}
+function resetFrequency(){
+  kpiConfig.report_frequency='';
+  renderForm(getCurrentMonth());
+}
+
+// ---- カウンター操作 ----
+function setMode(mode){
+  _inputMode=mode;
+  renderForm(getCurrentMonth());
+}
+
+function adjustCount(id, delta){
+  _counters[id]=Math.max(0,(_counters[id]||0)+delta);
+  // 都度報告大型カウンター
+  var numEl=document.getElementById('spot-num-'+id)||document.getElementById('cnt-'+id);
+  if(numEl) numEl.textContent=_counters[id];
+}
+
+// 都度報告：+1タップ（視覚フィードバック付き）
+function spotCount(id){
+  _counters[id]=(_counters[id]||0)+1;
+  var numEl=document.getElementById('spot-num-'+id);
+  if(numEl){
+    numEl.textContent=_counters[id];
+    numEl.style.transform='scale(1.3)';
+    setTimeout(function(){numEl.style.transform='scale(1)';},120);
+  }
+}
+
+// 都度報告プリセット：来客人数をまとめて加算
+function spotPreset(id, n){
+  _counters[id]=(_counters[id]||0)+n;
+  var numEl=document.getElementById('spot-num-'+id);
+  if(numEl){
+    numEl.textContent=_counters[id];
+    numEl.style.transform='scale(1.3)';
+    setTimeout(function(){numEl.style.transform='scale(1)';},120);
+  }
+}
+
+function resetCount(id){
+  if(!confirm('カウントをリセットしますか？')) return;
+  _counters[id]=0;
+  var numEl=document.getElementById('spot-num-'+id)||document.getElementById('cnt-'+id);
+  if(numEl) numEl.textContent=0;
+}
+
+init();
+</script>
+</body>
+</html>
