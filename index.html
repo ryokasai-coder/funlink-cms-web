@@ -413,7 +413,7 @@ function saveStore(data) {
 
 // ---- MASTER_CASES 保存 ----
 async function saveMasterCases() {
-  if(!requireWrite()) return;
+  if(!requireWrite()) return false;
   // 楽観的ロック: 別タブが後から保存していないか確認
   try {
     var ver = JSON.parse(localStorage.getItem('funlink_cases_version') || 'null');
@@ -423,7 +423,7 @@ async function saveMasterCases() {
         new Date(ver.ts).toLocaleTimeString('ja-JP') + '更新）。\n' +
         'このまま保存すると他タブの変更が上書きされます。\n\n続行しますか？'
       );
-      if (!proceed) return;
+      if (!proceed) return false;
     }
   } catch(e) {}
 
@@ -448,6 +448,7 @@ async function saveMasterCases() {
   try { localStorage.setItem('funlink_cases_version', JSON.stringify({ ts: Date.now(), tab: _casesTabId })); } catch(e) {}
   // master_stores デュアルライト（テーブル存在時のみ・エラーは非致命的）
   syncMasterStoresToSupabase().catch(function(e){ console.warn('[master_stores sync]', e); });
+  return true; // 保存成功
 }
 
 // master_stores テーブルへの非同期同期（stores[]正規化後に有効化）
@@ -4907,13 +4908,16 @@ async function _rvGenToken(){
   if(!c) return;
   var token=[0,0,0,0].map(function(){return Math.random().toString(36).slice(2);}).join('').slice(0,24);
   c.kpi_config=c.kpi_config||{};
+  var _prev=c.kpi_config.client_token||'';
   c.kpi_config.client_token=token;
-  _rvShowTokenSection(fl, token);
   try{
-    await saveMasterCases();
+    var ok=await saveMasterCases();
+    if(ok===false){ c.kpi_config.client_token=_prev; toast('保存されなかったためURLを発行できませんでした（他タブの更新等）。再度お試しください', true); return; }
+    _rvShowTokenSection(fl, token); // 保存成功時のみURLを表示（未保存トークンのズレを防止）
     toast('URLを発行・保存しました');
   }catch(e){
-    toast('Supabase保存エラー: '+e.message+' — URLが使えない場合は再発行してください', true);
+    c.kpi_config.client_token=_prev; // 保存失敗はロールバック
+    toast('Supabase保存エラー: '+(e.message||e)+' — 発行できませんでした。再度お試しください', true);
   }
 }
 async function _rvRegenToken(){
