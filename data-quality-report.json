@@ -1,0 +1,1090 @@
+{
+  "checked_at": "2026-07-08",
+  "total_cases": 521,
+  "issues": [
+    {
+      "type": "zero_fee",
+      "fl": "FL00030",
+      "name": "済生堂接骨院",
+      "value": 0
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00030",
+      "name": "済生堂接骨院"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00033",
+      "name": "下川原接骨院",
+      "value": 0
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00033",
+      "name": "下川原接骨院"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00036",
+      "name": "ANDo&CAFE tas+minakami"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00069",
+      "name": "DogServiceBOW WOW365"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00073",
+      "name": "フランス菓子マシェリ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00084",
+      "name": "麺屋二郎"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00089",
+      "name": "エ・カリーナ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00105",
+      "name": "リラクゼーション/脱毛サロン　癒し処ほっこり　皆実町店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00107",
+      "name": "肉と麺と米を食らう 松源納屋橋亭"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00108",
+      "name": "きむらの整体"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00111",
+      "name": "グラン・パネトリー広陵店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00112",
+      "name": "髪みゆき"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00114",
+      "name": "イーマ・サウンド®セラピーサロン ema helios"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00118",
+      "name": "唐揚げ専門 日の出商店 坂戸千代田店"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00119",
+      "name": "メゾン・ド・パネトリー まほろば店",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00119",
+      "name": "メゾン・ド・パネトリー まほろば店"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00119",
+      "name": "メゾン・ド・パネトリー まほろば店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00124",
+      "name": "スタジオ夢物語岩見沢"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00127",
+      "name": "佰老亭"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00139",
+      "name": "ブラッセリールヴァン"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00159",
+      "name": "炭火焼肉 福わらひ2 仙台勾当台公園店"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00161",
+      "name": "炭火焼肉 福わらひ 福島本店",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00161",
+      "name": "炭火焼肉 福わらひ 福島本店"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00161",
+      "name": "炭火焼肉 福わらひ 福島本店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00173",
+      "name": "ペコラ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00174",
+      "name": "T-port"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00178",
+      "name": "居酒屋義経"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00179",
+      "name": "響亭"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00182",
+      "name": "らーめん和田屋"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00187",
+      "name": "焼肉ホルモン酒場マーシー家"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00189",
+      "name": "株式会社エルシード"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00192",
+      "name": "華やか弁当"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00197",
+      "name": "Ei Musica音楽教室"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00198",
+      "name": "ダスキン朝宮サービスマスター"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00201",
+      "name": "宮内整体院"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00203",
+      "name": "RiMK plus beautY 【リンクプラスビューティー】"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00208",
+      "name": "やきとり薩摩"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00209",
+      "name": "しゃんぼーる"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00210",
+      "name": "メンドコロ天鳳"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00215",
+      "name": "東風平"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00216",
+      "name": "備長炭焼肉ほむら 刈谷本店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00219",
+      "name": "カンナチュール"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00220",
+      "name": "ダンススタジオ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00221",
+      "name": "トラットリア　葡萄之樹"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00223",
+      "name": "トラットリア 伊心地"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00234",
+      "name": "九州酒場ふく",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00234",
+      "name": "九州酒場ふく"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00240",
+      "name": "CANAAN"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00242",
+      "name": "馳走き鶴"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00243",
+      "name": "まねきねこ珈琲焙煎所"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00249",
+      "name": "酒彩空間 楓"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00250",
+      "name": "THE NIGHT OWL"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00253",
+      "name": "キッチンパンチョ 上越インター店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00254",
+      "name": "CoCoNiMo"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00255",
+      "name": "ジャパリアーノ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00257",
+      "name": "女性専用ゲストハウス グレープハウス高円寺"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00260",
+      "name": "I.be LABO"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00263",
+      "name": "焼肉ホルモン酒場　気分上上"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00265",
+      "name": "たん焼BAN三宮北野店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00266",
+      "name": "懐食あおき"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00271",
+      "name": "Runnel インディバエステサロン"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00273",
+      "name": "Lunola"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00274",
+      "name": "ジョンハンプトン"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00278",
+      "name": "らーめん 一心屋"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00279",
+      "name": "はな鍼灸整骨院"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00280",
+      "name": "びんびん豚"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00282",
+      "name": "海鮮はし幸"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00290",
+      "name": "GRACE"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00292",
+      "name": "フェニックス学習館"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00294",
+      "name": "クラール鍼灸整骨院"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00303",
+      "name": "まうみ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00306",
+      "name": "東久留米トータルケア整骨院"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00309",
+      "name": "株式会社王星JAPAN",
+      "value": 0
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00310",
+      "name": "loveMINT",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00310",
+      "name": "loveMINT"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00311",
+      "name": "焼肉料理　牛吉日和",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00311",
+      "name": "焼肉料理　牛吉日和"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00312",
+      "name": "三代目下村牛ゆずり葉"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00314",
+      "name": "合同会社アメジスト",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00315",
+      "name": "Bal Bocca 石芝食堂"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00318",
+      "name": "ハピエスト"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00319",
+      "name": "アベニュー"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00321",
+      "name": "かわばジェラート"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00324",
+      "name": "竹野鮮魚"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00334",
+      "name": "シーパラ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00351",
+      "name": "麺将軍 王騎"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00376",
+      "name": "ホルモン誠"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00377",
+      "name": "鶏白湯Soba 和ノ家 ーあいのや"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00379",
+      "name": "CHOICE薩摩川内店",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00379",
+      "name": "CHOICE薩摩川内店"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00379",
+      "name": "CHOICE薩摩川内店"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00380",
+      "name": "CHOICE 宇宿店",
+      "value": 0
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00386",
+      "name": "緑の泉",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00386",
+      "name": "緑の泉"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00388",
+      "name": "駆除キング"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00392",
+      "name": "株式会社アクア"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00393",
+      "name": "40's Craft Beer & Natural Wine Bar"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00394",
+      "name": "TACHINOMIYA"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00398",
+      "name": "株式会社Brand Bank Company",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00403",
+      "name": "Chill Pop"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00404",
+      "name": "肉のやまざき"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00405",
+      "name": "麺や 谷口"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00406",
+      "name": "仁勇武館",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00413",
+      "name": "淳之助製麺食堂 坂戸"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00416",
+      "name": "京もつ鍋ホルモン"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00417",
+      "name": "きらら",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00419",
+      "name": "脳天喜。"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00421",
+      "name": "焼肉ミツクニ",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00422",
+      "name": "MEO 株式会社クリスティーナコンサルティング"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00423",
+      "name": "フワモコ訪問型シッター",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00424",
+      "name": "海鮮焼鳥ウイング"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00425",
+      "name": "雅工房株式会社",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00426",
+      "name": "MOROBAAU"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00427",
+      "name": "アゲ番長"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00428",
+      "name": "musicbar 銀河系 SPACY",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00428",
+      "name": "musicbar 銀河系 SPACY"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00429",
+      "name": "そらぷら",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00431",
+      "name": "有限会社ビリオンコーポレーション"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00433",
+      "name": "Adorable"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00435",
+      "name": "Ranko Delicieux（ランコデリシュー)",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00435",
+      "name": "Ranko Delicieux（ランコデリシュー)"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00435",
+      "name": "Ranko Delicieux（ランコデリシュー)"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00438",
+      "name": "株式会社PDE",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00438",
+      "name": "株式会社PDE"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00439",
+      "name": "聚楽の園"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00440",
+      "name": "創遊の樹",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00440",
+      "name": "創遊の樹"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00441",
+      "name": "reelboxデリカよんちゃん",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00441",
+      "name": "reelboxデリカよんちゃん"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00443",
+      "name": "銀座クロリス"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00444",
+      "name": "シェロマー",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00444",
+      "name": "シェロマー"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00445",
+      "name": "Nihon Miyabi浅草本店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00446",
+      "name": "【Reel Box】ハピエスト"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00451",
+      "name": "【Reel Box】株式会社VERTEX"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00452",
+      "name": "株式会社ディーエムエー（2店舗分）"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00454",
+      "name": "【Reel Box】京都式まぜそば専門店 脳天喜。"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00455",
+      "name": "【Reel Box】九段下 中路",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00455",
+      "name": "【Reel Box】九段下 中路"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00456",
+      "name": "【Reel Box】焼肉豚八"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00457",
+      "name": "酔いどれようこ亭 串かつ千佳"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00461",
+      "name": "【Reel Box】海鮮食楽市場"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00462",
+      "name": "株式会社hope（Bar E.E.D"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00463",
+      "name": "まるごと片付け"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00464",
+      "name": "焼肉遊"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00466",
+      "name": "株式会社リディファインダイニング"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00468",
+      "name": "わかば犬猫病院 横浜西口駅前"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00471",
+      "name": "【Reel Box】串の蔵（代々木店）"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00473",
+      "name": "【Reel Box】株式会社沼本自動車"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00474",
+      "name": "Giraffa enoshimaジラッファ江ノ島"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00475",
+      "name": "個室焼肉 登龍門 平塚店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00476",
+      "name": "株式会社築地スタイル"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00477",
+      "name": "六本木鉄板焼ORCA"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00478",
+      "name": "Credo Clinic新宿"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00480",
+      "name": "合同会社SKTC"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00486",
+      "name": "株式会社リアンジュ"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00487",
+      "name": "【MEO×LINEコンサル】株式会社Key-Point",
+      "value": 0
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00488",
+      "name": "株式会社Brand Bank Company",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00488",
+      "name": "株式会社Brand Bank Company"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00489",
+      "name": "株式会社JJknot",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00489",
+      "name": "株式会社JJknot"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00490",
+      "name": "株式会社ジャパンダイニング",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00490",
+      "name": "株式会社ジャパンダイニング"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00492",
+      "name": "株式会社Relier",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00493",
+      "name": "リクリエーションズ合同会社"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00494",
+      "name": "仁川家"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00495",
+      "name": "Raviel."
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00496",
+      "name": "【Reel Box】KAWASAKI  サンドウィッチストア",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00497",
+      "name": "Bulls burger club"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00499",
+      "name": "【ReeLBox】淳之助製麺食堂 坂戸店"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00500",
+      "name": "株式会社アオナツ"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00501",
+      "name": "B1hair",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00501",
+      "name": "B1hair"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00501",
+      "name": "B1hair"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00503",
+      "name": "One Hundred Bakery OBU"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00505",
+      "name": "株式会社ディーエムエー（2店舗分）"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00506",
+      "name": "Shanties"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00507",
+      "name": "呑み処・麺処 いそべ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00509",
+      "name": "【FunLink】Pausa Tre"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00511",
+      "name": "株式会社イヴィクシア"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00513",
+      "name": "株式会社Gracias SNS運用代行紹介料"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00514",
+      "name": "【Reel Box】株式会社サンライズ",
+      "value": 0
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00514",
+      "name": "【Reel Box】株式会社サンライズ"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00515",
+      "name": "【Reel Box】株式会社山崎商店"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00516",
+      "name": "【Reel Box】株式会社アイツーホーム",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00516",
+      "name": "【Reel Box】株式会社アイツーホーム"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00518",
+      "name": "【Reel Box】リリーフカイロプラクティック",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00518",
+      "name": "【Reel Box】リリーフカイロプラクティック"
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00519",
+      "name": "【Reel Box】株式会社AIIatonce"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00520",
+      "name": "オレの推し麺",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00520",
+      "name": "オレの推し麺"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00520",
+      "name": "オレの推し麺"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00521",
+      "name": "LoungeSnack KYO",
+      "value": 0
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00521",
+      "name": "LoungeSnack KYO"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00522",
+      "name": "ぼぬーる",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00522",
+      "name": "ぼぬーる"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00522",
+      "name": "ぼぬーる"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00523",
+      "name": "ソラノネ",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00523",
+      "name": "ソラノネ"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00523",
+      "name": "ソラノネ"
+    },
+    {
+      "type": "zero_fee",
+      "fl": "FL00524",
+      "name": "麺屋天空",
+      "value": 0
+    },
+    {
+      "type": "empty_stores",
+      "fl": "FL00524",
+      "name": "麺屋天空"
+    },
+    {
+      "type": "missing_start",
+      "fl": "FL00524",
+      "name": "麺屋天空"
+    }
+  ],
+  "info": [
+    {
+      "type": "future_start",
+      "fl": "FL00493",
+      "name": "リクリエーションズ合同会社",
+      "value": "2026-10-30"
+    }
+  ],
+  "summary": {
+    "duplicate_fl": 0,
+    "null_fee": 0,
+    "zero_fee": 41,
+    "empty_stores": 151,
+    "invalid_status": 0,
+    "missing_start": 13,
+    "empty_name": 0
+  },
+  "total_issues": 205
+}

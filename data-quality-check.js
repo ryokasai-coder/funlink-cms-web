@@ -59,6 +59,7 @@ async function main() {
     checked_at:    todayStr,
     total_cases:   cases.length,
     issues:        [],
+    info:          [],   // 問題ではないが参考情報（将来開始契約など）
     summary:       {}
   };
 
@@ -70,7 +71,6 @@ async function main() {
     empty_stores:        0,
     invalid_status:      0,
     missing_start:       0,
-    future_start:        0,
     empty_name:          0
   };
 
@@ -120,10 +120,10 @@ async function main() {
         issueCounts.missing_start++;
         report.issues.push({ type: 'missing_start', fl: c.fl, name: c.name });
       } else {
-        // 7. start未来日（今日より後）
+        // 7. start未来日（今日より後）＝将来スタート契約として正当なケースがあるため
+        //    「問題」ではなく参考情報(info)として記録する（総問題件数には含めない）
         if (c.start > todayStr) {
-          issueCounts.future_start++;
-          report.issues.push({ type: 'future_start', fl: c.fl, name: c.name, value: c.start });
+          report.info.push({ type: 'future_start', fl: c.fl, name: c.name, value: c.start });
         }
       }
     }
@@ -145,7 +145,6 @@ async function main() {
         empty_stores:    '店舗情報なし（契約中）',
         invalid_status:  'ステータス表記ゆれ',
         missing_start:   '開始日欠損（契約中）',
-        future_start:    '開始日が未来日（契約中）',
         empty_name:      '会社名が空'
       };
       console.log('  ⚠  ' + (labels[k] || k) + ': ' + issueCounts[k] + '件');
@@ -154,6 +153,16 @@ async function main() {
 
   if (report.total_issues === 0) {
     console.log('  ✅ 全チェック通過 — 問題なし');
+  }
+
+  // 参考情報（問題ではない）
+  if (report.info.length > 0) {
+    console.log('\n----- 参考情報（問題ではない） -----');
+    report.info.forEach(function(i) {
+      if (i.type === 'future_start') {
+        console.log('  ℹ  将来スタート契約: ' + i.fl + ' ' + i.name + ' → ' + i.value);
+      }
+    });
   }
 
   var outPath = 'data-quality-report.json';
