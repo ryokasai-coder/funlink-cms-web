@@ -6697,6 +6697,14 @@ function importBillingCSV(type,text){
       if(!r.inv){d.invoices.push(r);return;}
       if(!invMap[r.inv]||stPrio(r.status)<stPrio(invMap[r.inv].status)) invMap[r.inv]=r;
     });
+    // 既存invoicesから商品名・期間・売上計上日を補完（商品名列の無い簡易CSVで既存が空上書き＝消失するのを防止 #49）
+    var _prevByInv={}; (d.invoices||[]).forEach(function(x){ if(x.inv) _prevByInv[x.inv]=x; });
+    Object.keys(invMap).forEach(function(k){
+      var nw=invMap[k], old=_prevByInv[k]; if(!old) return;
+      ['product','period_start','period_end','sales_month'].forEach(function(f){
+        if((nw[f]==null||nw[f]==='') && old[f]!=null && old[f]!=='') nw[f]=old[f];
+      });
+    });
     d.invoices=Object.values(invMap);
     var dupCount=raw.length-d.invoices.length;
     d.imported.invoices=today();
