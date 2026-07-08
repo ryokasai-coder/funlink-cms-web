@@ -1812,7 +1812,7 @@ function buildFlServiceIndex(){
   (getBillingData().invoices||[]).forEach(function(x){ var v=map[(x.product||'').trim()]; if(v){ (idx[x.fl]=idx[x.fl]||{})[v]=true; } });
   return idx;
 }
-function flServiceType(idx, fl){ var set=idx[fl]||{}; var hasF=set.funlink||set.both, hasR=set.reelbox||set.both; if(hasF&&hasR)return 'both'; if(hasR)return 'reelbox'; if(hasF)return 'funlink'; return 'unknown'; }
+function flServiceType(idx, fl){ var set=idx[fl]||{}; var hasF=!!set.funlink, hasR=!!set.reelbox; if(hasF&&hasR)return 'both'; if(hasR)return 'reelbox'; if(hasF)return 'funlink'; return 'unknown'; } // both/other(手数料等)は中立=判定に寄与しない
 function caseServiceBadge(t){ var m=({funlink:['FunLink','#4F46E5','#EEF2FF'],reelbox:['ReelBox','#059669','#ECFDF5'],both:['両方','#D97706','#FFFBEB']})[t]; if(!m)m=['未分類','#6B7280','#F3F4F6']; return '<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;color:'+m[1]+';background:'+m[2]+'">'+m[0]+'</span>'; }
 function renderMaster() {
   var pg_s = state.master;
