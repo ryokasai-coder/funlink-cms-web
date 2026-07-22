@@ -4,3 +4,9 @@ token.json
 *.env
 .env*
 node_modules/
+
+# --- Claude Code / 作業生成物（2026-07-22 追加） ---
+.worktreeinclude
+supabase/.temp/
+design-preview.html
+.claude/settings.local.json
