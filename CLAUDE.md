@@ -4,7 +4,8 @@
 Funrix社のカスタマーサクセス・PR特化型CRM。単一HTMLファイル（index.html）アプリ。
 ビルド不要・ライブラリはCDN経由。
 
-**パス:** `C:\Users\ryo19\funlink-cms-web`
+**パス:** `C:\Users\ryo19\funrix-sr`（旧 funlink-cms-web からリネーム・2026-08-26）
+**GitHub:** `github.com/ryokasai-coder/funrix-sr` / **Vercel プロジェクト:** `funrix-sr`（ドメイン `funrix-sr.vercel.app`）
 **期限:** 2026年7月末
 **本番:** http://localhost:5501（`npx serve -p 5501 .`）
 
@@ -49,11 +50,18 @@ start, fee, stores[]{store_id, sname, addr, tel, plan, gbp_id, gbp_status}
 （GitHub issueは#49まで全てクローズ済み。コード面の残タスクは無し）
 
 ## 残タスク（データ品質是正 — 本番DB / 業務判断が必要）
-`node data-quality-check.js` で521社を検査。2026-07-08時点で問題205件：
+`node data-quality-check.js` で521社を検査。2026-08-25時点で問題205件（**168社**にまたがる）：
 1. **店舗情報なし（契約中）: 151件** — stores配列が空。KPI・マッチングに影響
 2. **月額¥0（契約中）: 41件** — `無償運用`扱いか未設定か個別判断中（【Reel Box】系9件含む）
 3. **開始日欠損（契約中）: 13件** — FL00030, FL00119, FL00514 等
 - ※将来スタート契約（例: FL00493→2026-10-30）は正当なため参考情報(info)扱い・問題ではない
+- ※これらは本番の業務記録がないと埋められない実データ欠損。是正用の記入リストを生成済み:
+  `G:\マイドライブ\Funrix\FunLink案件管理\データ品質_是正ワークリスト_20260825.csv`（168社・BOM付きUTF-8）
+
+### 2026-08-25 修正メモ
+- 旧「ステータス表記ゆれ: 1件（FL00054 契��中）」は**本番DBの問題ではなく** `data-quality-check.js` の
+  HTTPチャンク文字列連結によるマルチバイト文字化けが原因だった。Buffer結合デコードに修正済み（誤検知解消）。
+- index.html のGASデプロイ手順の古い `H:\` パスを `G:\` に修正。
 
 ## コーディング規約
 - バニラJS（ES5互換）・`var` 使用
@@ -67,10 +75,10 @@ start, fee, stores[]{store_id, sname, addr, tel, plan, gbp_id, gbp_status}
 ## 注意事項
 - `.env` ファイルなし（Supabase keyはindex.html内にハードコード）
 - `index.html` は1600行超。編集前に対象関数の行番号をGrepで特定すること
-- プレビューサーバー起動: `npx serve -p 5501 C:\Users\ryo19\funlink-cms-web`
+- プレビューサーバー起動: `npx serve -p 5501 C:\Users\ryo19\funrix-sr`
 
 ## 開発基本方針（適用メモ）
 - **集計ロジック確認必須:** MRR（`sum(fee)` 契約中ステータスのみ）・チャーン率・クチコミ件数推移・KPIカード各数値の算出式をコメントで明示する
-- **保存先:** CSV出力・HTMLエクスポートは `H:\マイドライブ\Funrix\FunLink案件管理\` に保存
+- **保存先:** CSV出力・HTMLエクスポートは `G:\マイドライブ\Funrix\FunLink案件管理\` に保存
 - **Google API:** 案件データのGoogle Sheetsエクスポートに Sheets API を使用（既存の `funlink` シートID: `1kTIjqt7fNP-ut96UQV3Xe9y4e0D3zHj9ssnsRH450Gg`）
 - **自動化:** LINE通知・未返信アラート・KPI定期集計はSupabase Webhookまたは定期スクリプトで自動化

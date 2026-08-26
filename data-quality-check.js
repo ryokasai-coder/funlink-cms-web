@@ -25,10 +25,13 @@ function fetchJson(url, headers) {
     var opts = require('url').parse(url);
     opts.headers = headers;
     https.get(opts, function(res) {
-      var body = '';
-      res.on('data', function(c){ body += c; });
+      // チャンクはBufferのまま貯めて最後にまとめてUTF-8デコードする。
+      // 文字列連結(body += c)だとマルチバイト文字がチャンク境界で分割された際に
+      // 文字化けし、正常なDB値まで「表記ゆれ」と誤検知するため。
+      var chunks = [];
+      res.on('data', function(c){ chunks.push(c); });
       res.on('end', function(){
-        try { resolve(JSON.parse(body)); }
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
         catch(e){ reject(e); }
       });
     }).on('error', reject);
