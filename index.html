@@ -564,7 +564,7 @@ function showOnboarding() {
   var dotsHtml = steps.map(function(_, i){ return '<div id="ob-dot-'+i+'" style="width:8px;height:8px;border-radius:50%;background:' + (i===0?'#006dd2':'#d1d5db') + ';transition:background .2s"></div>'; }).join('');
   var current = 0;
   function renderStep(i) {
-    document.getElementById('ob-icon').textContent = steps[i].icon;
+    document.getElementById('ob-icon').innerHTML = steps[i].icon;
     document.getElementById('ob-title').textContent = steps[i].title;
     document.getElementById('ob-desc').textContent = steps[i].desc;
     document.getElementById('ob-btn').textContent = i < steps.length-1 ? '次へ →' : 'はじめる';
@@ -593,7 +593,7 @@ function obNext() {
     localStorage.setItem('funlink_onboard_done', 1);
     return;
   }
-  document.getElementById('ob-icon').textContent = steps[c].icon;
+  document.getElementById('ob-icon').innerHTML = steps[c].icon;
   document.getElementById('ob-title').textContent = steps[c].title;
   document.getElementById('ob-desc').textContent = steps[c].desc;
   document.getElementById('ob-btn').textContent = c >= steps.length - 1 ? 'はじめる' : '次へ →';
